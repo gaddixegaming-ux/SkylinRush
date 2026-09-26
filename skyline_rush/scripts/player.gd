@@ -43,6 +43,7 @@ var lane_change_time := 10.0
 var x_vel := 0.0
 var vy := 0.0
 var floor_y := 0.0
+var floor_snap := false  # floor comes from a bus ramp (main.gd)
 var grounded := true
 var coyote_t := 0.0
 var buffer_t := 0.0
@@ -226,6 +227,18 @@ func slam(power: bool) -> void:
 	slam_pending = true
 	air_dash_t = 0.0
 	flip = 0.0
+
+
+## Climb onto a roof (a jump that reaches the back of a parked bus).
+func mantle(top: float) -> void:
+	position.y = top
+	vy = 0.0
+	grounded = true
+	can_double = true
+	air_dash_ready = true
+	flip = 0.0
+	squash = Vector3(0.8, 1.2, 0.8)
+	landed.emit(6.0, false)
 
 
 func launch(v: float) -> void:
@@ -602,42 +615,53 @@ func tick(delta: float, speed: float, running: bool) -> void:
 		vy = maxf(vy - GRAVITY * 0.1 * delta, 0.0)
 		position.y += vy * delta
 	else:
-		if grounded and floor_y > position.y and floor_y - position.y < 1.3 and vy <= 0.5:
-			position.y = floor_y  # step up onto a rising floor (bus ramp)
-		var g := GRAVITY
-		if vy < 0.0:
-			g *= FALL_MULT
-		elif not jump_held:
-			g *= JUMP_CUT_MULT
-		vy -= g * delta
-		var prev_y := position.y
-		position.y += vy * delta
-		# crossing test (not a thin band) so fast slams / low FPS can't tunnel through
-		if position.y <= floor_y and vy <= 0.0 and prev_y >= floor_y - 0.3 and floor_y > -50.0:
-			var impact := -vy
-			position.y = floor_y
+		if floor_snap and floor_y > position.y + 0.01 and vy <= 0.5:
+			# on a bus ramp the slope always carries you up (even when you
+			# land on it mid-jump or switch lanes onto it half-way)
+			position.y = move_toward(position.y, floor_y, 30.0 * delta)
 			vy = 0.0
 			if not grounded:
 				grounded = true
 				can_double = true
 				air_dash_ready = true
 				flip = 0.0
-				var sq := clampf(impact * 0.012, 0.08, 0.35)
-				squash = Vector3(1.0 + sq, 1.0 - sq * 0.85, 1.0 + sq)
-				var was_slam := slamming
-				slamming = false
-				landed.emit(impact, was_slam)
-				if slam_pending and grounded:
-					slam_pending = false
-					if not was_slam:
-						slide_timer = SLIDE_TIME
-						slid.emit()
-				if buffer_t > 0.0 and grounded:
-					_do_jump("jump")
-		elif position.y > floor_y + 0.05:
-			if grounded:
-				coyote_t = COYOTE
-			grounded = false
+		else:
+			if grounded and floor_y > position.y and floor_y - position.y < 1.3 and vy <= 0.5:
+				position.y = floor_y  # step up onto a rising floor (bus ramp)
+			var g := GRAVITY
+			if vy < 0.0:
+				g *= FALL_MULT
+			elif not jump_held:
+				g *= JUMP_CUT_MULT
+			vy -= g * delta
+			var prev_y := position.y
+			position.y += vy * delta
+			# crossing test (not a thin band) so fast slams / low FPS can't tunnel through
+			if position.y <= floor_y and vy <= 0.0 and prev_y >= floor_y - 0.3 and floor_y > -50.0:
+				var impact := -vy
+				position.y = floor_y
+				vy = 0.0
+				if not grounded:
+					grounded = true
+					can_double = true
+					air_dash_ready = true
+					flip = 0.0
+					var sq := clampf(impact * 0.012, 0.08, 0.35)
+					squash = Vector3(1.0 + sq, 1.0 - sq * 0.85, 1.0 + sq)
+					var was_slam := slamming
+					slamming = false
+					landed.emit(impact, was_slam)
+					if slam_pending and grounded:
+						slam_pending = false
+						if not was_slam:
+							slide_timer = SLIDE_TIME
+							slid.emit()
+					if buffer_t > 0.0 and grounded:
+						_do_jump("jump")
+			elif position.y > floor_y + 0.05:
+				if grounded:
+					coyote_t = COYOTE
+				grounded = false
 	if grounded:
 		coyote_t = COYOTE
 

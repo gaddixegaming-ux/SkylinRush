@@ -51,12 +51,17 @@ def norm(x, peak=0.9):
 
 
 def coin():
-    a = inst_bell(mtof(88), 0.08)[:ns(0.35)] * 0.7
-    b = np.zeros(ns(0.35))
-    s = inst_bell(mtof(95), 0.18)[:ns(0.35) - ns(0.06)]
-    b[ns(0.06):ns(0.06) + len(s)] = s
-    shimmer = hp(noise(0.35), 8000) * decay(ns(0.35), 0.05) * 0.15
-    return pad(a, b * 0.9, shimmer)
+    """Classic endless-runner coin: a quick two-note square 'bl-ING' (B5 -> E6)."""
+    def note(f, dur, tau):
+        n = ns(dur)
+        x = square(f, dur, 0.5) * 0.55 + sine(f, dur) * 0.45
+        return lp(x, 7000) * decay(n, tau) * env(n, 0.001, 0.01, 1.0, 0.01)
+    a = note(987.77, 0.07, 0.2)
+    b = note(1318.51, 0.38, 0.12)
+    out = np.zeros(len(a) + len(b))
+    out[:len(a)] += a
+    out[len(a):] += b
+    return out
 
 
 def jump():

@@ -1189,6 +1189,7 @@ func _compute_floor(delta: float) -> void:
 	if f < -100.0 and revive_bridge_t > 0.0 and py > -0.3:
 		f = 0.0
 	on_rail = false
+	var ramp := false
 	for obj in world.objects.get_children():
 		var kind: String = obj.get_meta("kind")
 		if kind == "ramp":
@@ -1198,8 +1199,9 @@ func _compute_floor(delta: float) -> void:
 			if absf(px - ro.x) < 1.25 and 0.0 < ro.z + rb.end.z and 0.0 > ro.z + rb.position.z:
 				var k := clampf((ro.z + rb.end.z) / rb.size.z, 0.0, 1.0)
 				var rh := rb.size.y * k
-				if py >= rh - 1.3 and rh >= f:
+				if rh >= f:
 					f = rh
+					ramp = true
 			continue
 		if not kind in WorldScript.SOLID:
 			continue
@@ -1211,7 +1213,9 @@ func _compute_floor(delta: float) -> void:
 			if py >= top - 0.45 and top >= f:
 				f = top
 				on_rail = kind == "rail"
+				ramp = false
 	player.floor_y = f
+	player.floor_snap = ramp
 
 
 ## Oncoming buses drive at you; one stops if something else is in its way.
@@ -1284,6 +1288,12 @@ func _check_objects(delta: float) -> void:
 				_check_close_call(obj)
 			if wb.intersects(pbox):
 				var on_top: bool = kind in WorldScript.SOLID and player.position.y >= wb.end.y - 0.45
+				if not on_top and kind == "bus" and float(obj.get_meta("move", 0.0)) <= 0.0 \
+						and wb.end.z < 1.2 and player.position.y >= wb.end.y - 1.8:
+					# a jump that reaches the back of a parked bus climbs onto its roof
+					player.mantle(wb.end.y)
+					audio.play("land", 1.1, -4.0)
+					on_top = true
 				if not on_top:
 					_on_hit(obj, kind)
 					if state != State.PLAYING:

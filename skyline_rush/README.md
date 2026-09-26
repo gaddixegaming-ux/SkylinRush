@@ -3,20 +3,25 @@
 Open Godot 4.3 or newer → Import → choose `project.godot` → press F5.
 
 ## What's new in v8
-- **Soundtrack:** 10 original songs, one per track plus the menu, all built on the **same melody** in different styles:
-  - menu: lo-fi
-  - Sky Roads: synthwave
-  - Lantern Festival: Chinese festive
-  - Skate Park: pop-punk
-  - Rain Alley: drum & bass
-  - Neo Market: city-pop
-  - Harbor: tropical house
-  - Sakura: Japanese lo-fi
-  - Carnival: chiptune
-  - Turbo Highway: outrun
+- **Soundtrack:** 10 original songs, one per track plus the menu. They all use the **same melody**, each in its own modern style and at a faster tempo:
+
+  | Song | Style | BPM | Driven by |
+  |---|---|---|---|
+  | Menu | chill future-bass | 110 | 808 bass |
+  | Sky Roads | synthwave electro-house | 128 | 4-on-the-floor beat |
+  | Lantern Festival | Chinese trap-EDM | 140 | 808 bass + taiko |
+  | Skate Park | modern pop-punk | 184 | punk drums + gang shouts |
+  | Neon Rain Alley | neuro drum & bass | 176 | wobble / reese bass |
+  | Neon Market | nu-disco / funky house | 124 | 4-on-the-floor beat |
+  | Hover Harbor | tropical house | 118 | 4-on-the-floor beat |
+  | Sakura Heights | Japanese trap | 140 | heavy 808 slides |
+  | Candy Carnival | chip-electro | 150 | pumping beat |
+  | Turbo Highway | outrun with a bass drop | 140 | wobble + 808 bass |
+
+  Modern production throughout: 808 slides, trap hi-hat rolls, risers and snare-roll build-ups, drop impacts and sub drops, vocal chops, wobble bass and sidechain pumping.
 
   Songs **crossfade smoothly** (2.2 s, equal-power) when you enter a new map. They are rendered by `tools/music/compose.py`.
-- **New SFX pack:** 31 synthesised sounds for coins, jumps, landings, crashes, shields, vehicles, tricks, grinds and more (`tools/music/sfx.py`).
+- **New SFX pack:** a classic two-note endless-runner **coin blip** (it rises in pitch as your coin streak grows), plus 30 more synthesised sounds for jumps, landings, crashes, shields, vehicles, tricks, grinds and more (`tools/music/sfx.py`).
 - **Lobbies:** every runner waits in their own detailed place, with lights, glossy floors and a reflection probe:
   - HOOPS: a street court at sunset.
   - ROCKY: a boxing gym.
@@ -25,7 +30,7 @@ Open Godot 4.3 or newer → Import → choose `project.godot` → press F5.
   - CHILL: a neon rooftop.
 - **HOOPS dribble:** now uses the Mixamo *Dribble* clip. The ball is held on the push-down, bounces off the floor and meets the hand again.
 - **The fox is retired.** The roster is HOOPS, ROCKY, PIXEL, ACE and CHILL.
-- **Buses:** parked and oncoming buses, with coins on the roofs of parked ones. There are also **bus ramps** you can run up and along.
+- **Buses:** parked and oncoming buses, with coins on the roofs of parked ones. There are also **bus ramps** you can run up and along. The ramp always carries you up, even if you jump onto it or switch lanes onto it halfway. A jump that reaches the back of a parked bus **climbs onto the roof** instead of crashing.
 - **Detailed obstacles:**
   - cars with windows, mirrors, grilles, plates and hubcaps
   - crates with planks

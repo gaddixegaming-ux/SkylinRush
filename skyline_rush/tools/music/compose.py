@@ -3,9 +3,11 @@
 
 Renders a menu song plus one song per track to res://music/*.ogg. Every song
 is built on the SAME melody ("the Skyline theme") over the same Am-F-C-G
-progression, re-arranged in its own style: lo-fi, synthwave, Chinese festival,
-pop-punk, drum & bass, city-pop funk, tropical house, Japanese lo-fi,
-chiptune circus and outrun electro-rock.
+progression, re-arranged in its own modern style: chill future-bass (menu),
+synthwave electro-house, Chinese trap-EDM, pop-punk, neuro drum & bass,
+nu-disco house, tropical house, Japanese trap, chip-electro and outrun with a
+bass drop. Modern production: 808 slides, trap hat rolls, risers, snare-roll
+builds, drop impacts, sub drops, vocal chops, wobble bass, sidechain pumping.
 
 Everything is synthesised from scratch (no samples): band-limited oscillators,
 FM, Karplus-Strong plucks, modal percussion, noise drums, convolution reverb,
@@ -394,6 +396,150 @@ def vinyl(dur):
     return x + lp(pops, 5000)
 
 
+
+# ---------------------------------------------------------------- modern elements
+VOWELS = {"a": (800, 1150, 2900), "o": (450, 800, 2830), "e": (400, 1700, 2600), "i": (300, 2200, 3000), "u": (325, 700, 2530)}
+
+
+def sweep_filter(x, f0, f1, kind="band", width=1.6, blocks=48):
+    """Time-varying filter: overlapping Hann blocks, cutoff moving f0 -> f1."""
+    n = len(x)
+    out = np.zeros(n)
+    hop = max(64, n // blocks)
+    win = hop * 2
+    w = np.hanning(win)
+    for i in range(0, n, hop):
+        seg = x[i:i + win]
+        if len(seg) < 64:
+            break
+        c = f0 * (f1 / f0) ** (i / max(n - 1, 1))
+        if kind == "band":
+            y = bp(seg, c / width, min(c * width, SR * 0.45))
+        elif kind == "low":
+            y = lp(seg, c)
+        else:
+            y = hp(seg, c)
+        out[i:i + len(y)] += y * w[:len(y)]
+    return out
+
+
+def riser(dur):
+    """White-noise sweep + rising saw: the build-up before a drop."""
+    n = ns(dur)
+    t = np.linspace(0, 1, n)
+    nz = sweep_filter(noise(dur), 300, 9000, "band", 1.5) * t ** 2
+    f = 110 * 2 ** (t * 3)
+    tone = lp(2 * ((np.cumsum(f) / SR) % 1.0) - 1, 3000) * t ** 3 * 0.25
+    return (nz * 1.2 + tone) * 0.8
+
+
+def impact():
+    """The hit at the start of a drop: deep boom + noise burst + crash."""
+    boom = kick(1.6, 36, 1.4) * 0.9
+    burst = lp(noise(0.8), 1500) * decay(ns(0.8), 0.12) * 0.6
+    return mix(boom, burst, crash(2.5) * 0.7)
+
+
+def sub_drop(dur):
+    n = ns(dur)
+    t = np.arange(n) / SR
+    f = 30 + 60 * np.exp(-t * 3.0)
+    return np.sin(2 * np.pi * np.cumsum(f) / SR) * decay(n, dur * 0.45) * 0.9
+
+
+def reverse_crash(dur):
+    x = crash(dur)[::-1].copy()
+    return x * np.linspace(0, 1, len(x)) ** 2
+
+
+def inst_808(f, dur, glide=0.0, drive=2.4):
+    """Trap 808: punchy pitch drop, optional slide from `glide` semitones, saturated."""
+    n = ns(dur)
+    t = np.arange(n) / SR
+    fr = f * (1 + 1.2 * np.exp(-t * 45))
+    if glide:
+        fr = fr * 2 ** (glide / 12.0 * np.exp(-t * 14))
+    x = np.sin(2 * np.pi * np.cumsum(fr) / SR)
+    x = np.tanh(x * drive) / np.tanh(drive)
+    return lp(x, 1600) * env(n, 0.002, 0.3, 0.85, 0.06)
+
+
+def inst_vox(f, dur, vowel="a"):
+    """Formant 'vocal chop': a sung vowel on the note."""
+    n = ns(dur)
+    src = saw(f, dur, 0, 0.007, 5.2) + noise(dur) * 0.08
+    fm = VOWELS[vowel]
+    x = bp(src, fm[0] * 0.85, fm[0] * 1.15) + bp(src, fm[1] * 0.9, fm[1] * 1.1) * 0.6 + bp(src, fm[2] * 0.94, fm[2] * 1.06) * 0.35
+    return x * env(n, 0.006, 0.06, 0.75, 0.04) * 2.2
+
+
+def chop(f, d):
+    """Short pitched vocal chops (random vowels) - modern EDM lead."""
+    return inst_vox(f, min(d * 0.8, 0.32), "aoeu"[rng.integers(4)])
+
+
+def shout():
+    """Gang 'HEY!' for the pop-punk track."""
+    x = sum(inst_vox(mtof(m) * rng.uniform(0.99, 1.01), 0.2, "e") for m in (52, 55, 59, 64))
+    return (x + bp(noise(0.2), 900, 3000) * decay(ns(0.2), 0.05) * 0.4) * 0.5
+
+
+def inst_wobble(f, dur, rate, beat_len):
+    """Wobble / growl bass: LFO sweeping between three filtered copies."""
+    n = ns(dur)
+    x = saw(f, dur) * 0.6 + square(f * 0.5, dur) * 0.4 + saw(f * 1.007, dur, 0.3) * 0.4
+    t = np.arange(n) / SR
+    lfo = 0.5 - 0.5 * np.cos(2 * np.pi * rate * t / beat_len)
+    y = lp(x, 170) * (1 - lfo) ** 2 + lp(x, 750) * 2 * lfo * (1 - lfo) + lp(x, 2800) * lfo ** 2
+    y = np.tanh(y * 2.5) * 0.7 + sine(f, dur) * 0.55
+    return y * env(n, 0.004, 0.1, 0.9, 0.04) * 0.7
+
+
+def trap_hats(s, bars, start, gain=0.5, bus="drums"):
+    """8th hats with 16th / triplet / 32nd rolls every other bar."""
+    for bi in range(bars):
+        bar = start + bi
+        for i in range(8):
+            s.add(bus, bar * 4 + i * 0.5, hat(), gain * (1.0 if i % 2 == 0 else 0.65), 0.25, 0.001)
+        if bi % 2 == 1:
+            kind = rng.integers(3)
+            hits = [3 + k * 0.25 for k in range(4)] if kind == 0 else \
+                [2 + k / 3 for k in range(6)] if kind == 1 else [3 + k * 0.125 for k in range(8)]
+            for k, h in enumerate(hits):
+                s.add(bus, bar * 4 + h, hat(), gain * (0.45 + 0.07 * k), 0.25, 0.001)
+        else:
+            for h in (1.75, 3.75):
+                s.add(bus, bar * 4 + h, hat(), gain * 0.5, 0.25, 0.001)
+
+
+def bass808(s, bars, start, gain, pattern=((0, 1.5), (1.5, 0.5), (2.5, 1.5)), bus="bass", octave=-1):
+    """808 line on the progression, sliding into each new root."""
+    prev = None
+    for bi in range(bars):
+        r = ROOTS[bi % 8] + 12 * octave
+        for k, (b, d) in enumerate(pattern):
+            m = r + (12 if (k == len(pattern) - 1 and bi % 2 == 1) else 0)
+            g = (prev - m) if (prev is not None and prev != m and k == 0) else 0
+            s.add(bus, (start + bi) * 4 + b, inst_808(mtof(m), d * s.beat * 0.98, g), gain)
+            prev = m
+
+
+def build(s, bar, bars=2, gain=0.6):
+    """Riser + accelerating snare roll leading into `bar + bars`."""
+    s.add("fx", bar * 4, riser(bars * 4 * s.beat), gain)
+    s.add("fx", (bar + bars) * 4 - 2, reverse_crash(2 * s.beat), gain * 0.8)
+    steps = bars * 8
+    for i in range(steps):
+        sub = 4 if i >= steps * 0.75 else (2 if i >= steps * 0.5 else 1)
+        for k in range(sub):
+            s.add("drums", bar * 4 + i * 0.5 + k * 0.5 / sub, snare(185 + i * 5, 0.12, 0.8), 0.2 + 0.55 * i / steps, 0, 0.001)
+
+
+def drop(s, bar, gain=0.8):
+    s.add("fx", bar * 4, impact(), gain)
+    s.add("fx", bar * 4, sub_drop(3 * s.beat), gain * 0.8)
+
+
 # ---------------------------------------------------------------- mixing
 class Song:
     def __init__(self, bpm, bars, tail=3.0):
@@ -580,189 +726,276 @@ def standard_kit(**kw):
 
 
 # ---------------------------------------------------------------- the songs
+# Every song: intro -> verse -> build (riser + snare roll) -> DROP -> break -> drop.
+# Bass-led songs (808 / reese / wobble): menu, festival, rain, sakura, highway.
+# Beat-led songs (four-on-the-floor / punk / house): sky, skate, market, harbor, carnival.
+FOUR = "x...x...x...x..."
+
+
 def song_menu():
-    """'Skyline Dreams' - warm lo-fi: Rhodes, soft piano theme, boom-bap."""
-    s = Song(88, 16)
-    chords(s, "keys", inst_epiano, 16, 0, 0.5, rhythm=((0, 1.5), (1.75, 2.25)))
-    melody(s, "lead", inst_piano, 8, 4, 0.55, pan=0.1)
-    melody(s, "lead", inst_bell, 4, 12, 0.25, pan=-0.2, octave=1)
-    bassline(s, "bass", "sub", 16, 0, 0.55, pattern=((0, 1.5), (1.75, 0.75), (2.5, 1.5)))
-    kit = standard_kit(kick={"punch": 0.6, "tone": 48}, snare={"tone": 210, "snap": 0.6})
-    drums(s, 4, 0, {"hat": "x.x.x.x.x.x.x.xo"}, kit, 0.6, fill=False)
-    drums(s, 12, 4, {"kick": "x.....x...x.....", "snare": "....x.......x...", "hat": "x.xxx.x.x.xxx.x."}, kit, 0.8)
-    s.add("amb", 0, vinyl(s.length), 1.0)
-    s.buses["drums"] = np.column_stack([lp(s.buses["drums"][:, c], 5000) for c in range(2)])
-    return s, {"keys": {"reverb": (2.2, 0.35)}, "lead": {"reverb": (2.5, 0.4), "delay": (0.75, 0.35, 0.3)},
-               "drums": {"gain": 0.9, "reverb": (0.8, 0.12)}, "bass": {"gain": 1.0}, "amb": {"gain": 1.0}}
+    """'Skyline Dreams' - chill future-bass: Rhodes, vocal chops, 808 slides, trap hats."""
+    s = Song(110, 24)
+    chords(s, "keys", inst_epiano, 24, 0, 0.5, rhythm=((0, 1.5), (1.75, 2.25)))
+    melody(s, "lead", inst_piano, 8, 4, 0.5, pan=0.1)
+    melody(s, "vox", chop, 8, 14, 0.5)
+    chords(s, "pad", lambda f, d: inst_supersaw(f, d, 3000), 8, 14, 0.35, rhythm=((0, 0.75), (1, 0.75), (2, 0.75), (3, 0.5), (3.5, 0.5)))
+    melody(s, "lead", inst_bell, 2, 22, 0.25, pan=-0.2, octave=1)
+    bass808(s, 18, 4, 0.75)
+    kit = standard_kit(kick={"punch": 0.9, "tone": 50, "length": 0.3}, snare={"tone": 210, "snap": 0.8})
+    drums(s, 4, 0, {"snap": "....x.......x..."}, kit, 0.5, fill=False)
+    drums(s, 8, 4, {"kick": "x.....x...x.....", "clap": "........x......."}, kit, 0.85, fill=False)
+    trap_hats(s, 8, 4, 0.4)
+    build(s, 12, 2, 0.45)
+    drop(s, 14, 0.6)
+    drums(s, 8, 14, {"kick": "x.....x...x...x.", "clap": "........x......."}, kit, 0.95, fill=False)
+    trap_hats(s, 8, 14, 0.5)
+    s.add("amb", 0, vinyl(s.length), 0.8)
+    return s, {"keys": {"reverb": (2.2, 0.35), "pump": 0.3}, "lead": {"reverb": (2.5, 0.4), "delay": (0.75, 0.35, 0.3)},
+               "vox": {"reverb": (2.0, 0.35), "delay": (0.75, 0.35, 0.3)}, "pad": {"pump": 0.75, "reverb": (2.0, 0.3)},
+               "drums": {"reverb": (0.8, 0.12)}, "bass": {"gain": 1.0}, "fx": {"reverb": (2.5, 0.3)}, "amb": {}}
 
 
 def song_sky():
-    """Sky Roads - synthwave: supersaw pads, 16th arps, gated snare."""
-    s = Song(118, 28)
-    chords(s, "pad", inst_pad, 28, 0, 0.45)
-    arp(s, "arp", lambda f, d: mix(inst_pluck(f, d, 0.7) * 0.7, inst_lead(f, d, 6000) * 0.3), 24, 4, 0.22, 0.25, 1, (0, 1, 2, 1))
+    """Sky Roads - synthwave electro-house: 4-on-the-floor, 16th arps, supersaw + vocal-chop drop."""
+    s = Song(128, 36)
+    chords(s, "pad", inst_pad, 36, 0, 0.4)
+    arp(s, "arp", lambda f, d: mix(inst_pluck(f, d, 0.7) * 0.7, inst_lead(f, d, 6000) * 0.3), 32, 4, 0.22, 0.25, 1, (0, 1, 2, 1))
     melody(s, "lead", inst_lead, 8, 4, 0.5)
-    melody(s, "lead", lambda f, d: inst_supersaw(f, d, 6000), 8, 12, 0.45, octave=0)
-    melody(s, "lead", inst_lead, 8, 20, 0.5, octave=1)
-    bassline(s, "bass", "synth", 24, 4, 0.5, pattern=tuple((i * 0.5, 0.45) for i in range(8)))
-    kit = standard_kit(kick={"punch": 1.0}, snare={"tone": 180, "length": 0.5, "snap": 1.4})
-    drums(s, 4, 0, {"kick": "x...x...x...x...", "hat": "..x...x...x...x."}, kit, 0.8)
-    drums(s, 24, 4, {"kick": "x...x...x...x...", "snare": "....X.......X...", "hat": "..x...x...x...xo", "crash": "x..............." if False else "................"}, kit, 0.95)
-    for b in (4, 12, 20):
-        s.add("drums", b * 4, crash(), 0.7)
-    return s, {"pad": {"reverb": (3.0, 0.4), "pump": 0.35}, "arp": {"delay": (0.75, 0.4, 0.35), "reverb": (2.0, 0.25), "pump": 0.3},
-               "lead": {"reverb": (2.5, 0.35), "delay": (0.5, 0.3, 0.25)}, "bass": {"pump": 0.4}, "drums": {"reverb": (1.2, 0.3)}}
+    melody(s, "lead", lambda f, d: inst_supersaw(f, d, 7000), 8, 14, 0.5)
+    melody(s, "vox", chop, 8, 14, 0.35, octave=1)
+    melody(s, "lead", inst_bell, 4, 22, 0.35, octave=1)
+    melody(s, "lead", lambda f, d: inst_supersaw(f, d, 8000), 8, 28, 0.5, octave=1)
+    bassline(s, "bass", "synth", 32, 4, 0.55, pattern=tuple((i * 0.5 + 0.5, 0.45) for i in range(0, 8, 2)) + tuple((i * 0.5, 0.2) for i in range(0, 8, 2)))
+    kit = standard_kit(kick={"punch": 1.3, "tone": 52, "length": 0.35}, snare={"tone": 180, "length": 0.4, "snap": 1.4})
+    drums(s, 4, 0, {"kick": FOUR}, kit, 0.8, fill=False)
+    drums(s, 8, 4, {"kick": FOUR, "clap": "....x.......x...", "hat": "..x...x...x...x."}, kit, 0.95, fill=False)
+    build(s, 12, 2)
+    for a, n in ((14, 8), (28, 8)):
+        drop(s, a)
+        drums(s, n, a, {"kick": FOUR, "clap": "....X.......X...", "hat": "..o...o...o...o.", "shaker": "xxxxxxxxxxxxxxxx"}, kit, 1.0, fill=False)
+    drums(s, 4, 22, {"kick": "x...............", "hat": "..x...x...x...x."}, kit, 0.7, fill=False)
+    build(s, 26, 2)
+    return s, {"pad": {"reverb": (3.0, 0.4), "pump": 0.6}, "arp": {"delay": (0.75, 0.4, 0.35), "reverb": (2.0, 0.25), "pump": 0.45},
+               "lead": {"reverb": (2.5, 0.35), "delay": (0.5, 0.3, 0.25), "pump": 0.25}, "vox": {"reverb": (2.0, 0.3), "pump": 0.3},
+               "bass": {"pump": 0.6}, "drums": {"reverb": (1.0, 0.18)}, "fx": {"reverb": (2.5, 0.3)}}
 
 
 def song_festival():
-    """Lantern Festival - guzheng, erhu, dizi, taiko, woodblock, gong."""
-    s = Song(124, 24)
+    """Lantern Festival - Chinese trap-EDM: guzheng + erhu theme, taiko, 808 slides, gong drops."""
+    s = Song(140, 32)
     P = to_penta
     melody(s, "lead", lambda f, d: inst_pluck(f, d, 0.8, 0.997, 700), 8, 4, 0.6, transform=P, pan=-0.15)
-    melody(s, "lead2", inst_erhu, 8, 12, 0.45, transform=P, pan=0.15)
-    melody(s, "lead", lambda f, d: inst_flute(f, d), 4, 20, 0.45, octave=1, transform=P)
-    arp(s, "arp", lambda f, d: inst_pluck(f, d, 0.6, 0.995), 20, 4, 0.2, 0.5, 0, (0, 2, 1, 2), pan=0.3)
-    chords(s, "pad", lambda f, d: inst_pad(f, d, 1200), 24, 0, 0.3, transform=P)
-    bassline(s, "bass", "sub", 20, 4, 0.45, pattern=((0, 1.5), (1.5, 0.5), (2, 2)))
-    kit = {"kick": lambda c: taiko(), "snare": lambda c: woodblock(1100 if c == "x" else 700),
-           "hat": lambda c: hat(False) * 0.6, "shaker": lambda c: shaker(), "crash": lambda c: crash(),
-           "fill": lambda i: taiko() * (0.6 + i * 0.05)}
-    drums(s, 4, 0, {"kick": "x.......x.x.....", "snare": "..x...x...x...x."}, kit, 0.8)
-    drums(s, 20, 4, {"kick": "x..x..x.x.......", "snare": "..x..x.xx.x..x.x", "shaker": "xxxxxxxxxxxxxxxx"}, kit, 0.85)
-    for b in (0, 4, 12, 20):
-        s.add("fx", b * 4, gong(), 0.9)
-    return s, {"lead": {"reverb": (2.2, 0.35)}, "lead2": {"reverb": (2.5, 0.35)}, "arp": {"delay": (0.75, 0.3, 0.25)},
-               "pad": {"reverb": (3.0, 0.4)}, "drums": {"reverb": (1.5, 0.25)}, "fx": {"reverb": (3.0, 0.3)}, "bass": {}}
+    melody(s, "lead2", inst_erhu, 8, 14, 0.45, transform=P, pan=0.15)
+    melody(s, "vox", chop, 8, 14, 0.3, transform=P, octave=1)
+    melody(s, "lead", lambda f, d: inst_flute(f, d), 8, 24, 0.45, octave=1, transform=P)
+    arp(s, "arp", lambda f, d: inst_pluck(f, d, 0.6, 0.995), 28, 4, 0.18, 0.5, 0, (0, 2, 1, 2), pan=0.3)
+    chords(s, "pad", lambda f, d: inst_pad(f, d, 1200), 32, 0, 0.3, transform=P)
+    bass808(s, 28, 4, 0.62, pattern=((0, 0.75), (0.75, 0.75), (2, 1.0), (3, 1.0)))
+    kit = {"kick": lambda c: mix(kick(1.1, 50, 0.3), taiko() * 0.5), "snare": lambda c: mix(clap(), snare(200, 0.2)),
+           "wood": lambda c: woodblock(1100 if c == "x" else 700), "crash": lambda c: crash()}
+    drums(s, 4, 0, {"kick": "x.......x.x.....", "wood": "..x...x...x...x."}, kit, 0.8, fill=False)
+    drums(s, 8, 4, {"kick": "x......x..x.....", "snare": "........x.......", "wood": "..x..x....x..x.."}, kit, 0.9, fill=False)
+    trap_hats(s, 8, 4, 0.4)
+    build(s, 12, 2)
+    for a in (14, 24):
+        drop(s, a)
+        s.add("fx", a * 4, gong(), 0.9)
+    drums(s, 10, 14, {"kick": "x..x..x...x..x..", "snare": "........x.......", "wood": "..x...x.x...x..x"}, kit, 1.0, fill=False)
+    trap_hats(s, 10, 14, 0.5)
+    drums(s, 8, 24, {"kick": "x......xx.x.....", "snare": "....x.......x...", "wood": "..x..x.xx.x..x.x"}, kit, 1.0, fill=False)
+    trap_hats(s, 8, 24, 0.45)
+    s.add("fx", 0, gong(), 0.7)
+    return s, {"lead": {"reverb": (2.2, 0.35)}, "lead2": {"reverb": (2.5, 0.35)}, "vox": {"reverb": (2.0, 0.3), "delay": (0.75, 0.3, 0.25)},
+               "arp": {"delay": (0.75, 0.3, 0.25), "pump": 0.3}, "pad": {"reverb": (3.0, 0.4), "pump": 0.5},
+               "drums": {"reverb": (1.2, 0.2)}, "fx": {"reverb": (3.0, 0.3)}, "bass": {"gain": 1.0}}
 
 
 def song_skate():
-    """Skate Park - pop-punk: power chords, punchy drums, lead guitar theme (half time)."""
-    s = Song(168, 32)
-    for bi in range(28):
+    """Skate Park - modern pop-punk: fast power chords, double-time drums, gang shouts, guitar solo theme."""
+    s = Song(184, 40)
+    for bi in range(40):
+        if bi < 2:
+            continue
         r = ROOTS[bi % 8] + 12
         freqs = [mtof(r), mtof(r + 7), mtof(r + 12)]
+        palm = bi < 8 or 24 <= bi < 30
         for k in range(8):
-            palm = bi < 4 or (bi >= 20 and bi < 24)
-            s.add("gtr_l", (4 + bi) * 4 + k * 0.5 if bi >= 4 else bi * 4 + k * 0.5, inst_guitar_dist(freqs, 0.5 * s.beat, palm), 0.35, -0.6)
-            s.add("gtr_r", (4 + bi) * 4 + k * 0.5 if bi >= 4 else bi * 4 + k * 0.5, inst_guitar_dist([f * 1.002 for f in freqs], 0.5 * s.beat, palm), 0.35, 0.6)
+            s.add("gtr_l", bi * 4 + k * 0.5, inst_guitar_dist(freqs, 0.5 * s.beat, palm), 0.33, -0.65)
+            s.add("gtr_r", bi * 4 + k * 0.5, inst_guitar_dist([f * 1.002 for f in freqs], 0.5 * s.beat, palm), 0.33, 0.65)
     lead = lambda f, d: lp(np.tanh(inst_lead(f, d, 5000, 0.006) * 4), 4500) * 0.5
-    melody(s, "lead", lead, 8, 4, 0.55, half=True)
-    melody(s, "lead", lead, 8, 20, 0.55, half=True, octave=1)
-    bassline(s, "bass", "slap", 32, 0, 0.45, pattern=tuple((i * 0.5, 0.45) for i in range(8)), octave=0)
-    kit = standard_kit(kick={"punch": 1.2, "tone": 55, "length": 0.3}, snare={"tone": 200, "snap": 1.2})
-    drums(s, 4, 0, {"kick": "x.......x.......", "snare": "....x.......x...", "hat": "x.x.x.x.x.x.x.x."}, kit, 0.9)
-    drums(s, 28, 4, {"kick": "x.x...x.x.x...x.", "snare": "....X.......X...", "hat": "x.x.x.x.x.x.x.x."}, kit, 1.0)
-    for b in (4, 12, 20, 28):
+    melody(s, "lead", lead, 8, 8, 0.55, half=True)
+    melody(s, "lead", lead, 4, 32, 0.55, octave=1, half=True)
+    bassline(s, "bass", "slap", 38, 2, 0.5, pattern=tuple((i * 0.5, 0.45) for i in range(8)))
+    kit = standard_kit(kick={"punch": 1.3, "tone": 55, "length": 0.28}, snare={"tone": 205, "snap": 1.3})
+    drums(s, 2, 0, {"snare": "x.x.x.x.xxxxxxxx"}, kit, 0.8, fill=False)
+    drums(s, 6, 2, {"kick": "x.x...x.x.x...x.", "snare": "....X.......X...", "hat": "x.x.x.x.x.x.x.x."}, kit, 1.0)
+    drums(s, 16, 8, {"kick": "x.x...x.x.x...x.", "snare": "....X.......X...", "hat": "x.x.x.x.x.x.x.x."}, kit, 1.0)
+    drums(s, 6, 24, {"kick": "x...x...x...x...", "snare": "....X.......X...", "hat": "xxxxxxxxxxxxxxxx"}, kit, 0.95)
+    build(s, 30, 2, 0.5)
+    drums(s, 8, 32, {"kick": "x.x.x.x.x.x.x.x.", "snare": "..X...X...X...X.", "crash": "x..............."}, kit, 1.0)
+    for b in (8, 16, 24, 32):
         s.add("drums", b * 4, crash(), 0.8)
+    for bi in range(8, 24, 2):
+        for h in (0, 1.5):
+            s.add("vox", (bi + 1) * 4 + h, shout(), 0.5)
     return s, {"gtr_l": {"reverb": (0.8, 0.15)}, "gtr_r": {"reverb": (0.8, 0.15)}, "lead": {"reverb": (1.5, 0.3), "delay": (0.5, 0.25, 0.2)},
-               "bass": {}, "drums": {"reverb": (0.9, 0.2)}}
+               "bass": {}, "drums": {"reverb": (0.9, 0.2)}, "vox": {"reverb": (1.2, 0.3)}, "fx": {"reverb": (1.5, 0.25)}}
 
 
 def song_rain():
-    """Neon Rain Alley - drum & bass: breakbeats, reese bass, glassy bells, rain."""
-    s = Song(174, 32)
-    chords(s, "pad", lambda f, d: inst_pad(f, d, 1100), 32, 0, 0.4)
-    melody(s, "lead", inst_bell, 8, 8, 0.4, half=True, pan=0.2)
-    melody(s, "lead", lambda f, d: inst_flute(f, d, 0.004), 8, 24, 0.35, half=True, octave=1)
-    for bi in range(24):
-        r = ROOTS[(bi // 2) % 8]
-        s.add("bass", (8 + bi) * 4, inst_bass(mtof(r), 2.5 * s.beat, "reese"), 0.5)
-        s.add("bass", (8 + bi) * 4 + 2.75, inst_bass(mtof(r + 12 if bi % 2 else r), 1.0 * s.beat, "reese"), 0.4)
-    kit = standard_kit(kick={"punch": 1.1, "tone": 52, "length": 0.35}, snare={"tone": 220, "snap": 1.1})
-    drums(s, 8, 0, {"hat": "x.x.x.x.x.x.x.xo", "shaker": "xxxxxxxxxxxxxxxx"}, kit, 0.6, fill=False)
-    drums(s, 24, 8, {"kick": "x.........x.....", "snare": "....x..x.x..x...", "hat": "x.xxx.xxx.xxx.xo"}, kit, 1.0)
+    """Neon Rain Alley - neuro drum & bass: growling wobble/reese bass, breakbeats, vocal chops, rain."""
+    s = Song(176, 40)
+    chords(s, "pad", lambda f, d: inst_pad(f, d, 1100), 40, 0, 0.4)
+    melody(s, "lead", inst_bell, 8, 0, 0.35, half=True, pan=0.2)
+    melody(s, "vox", chop, 8, 16, 0.35, half=True, octave=1)
+    melody(s, "lead", lambda f, d: inst_flute(f, d, 0.004), 8, 32, 0.3, half=True, octave=1)
+    for a in (16, 32):
+        n = 16 if a == 16 else 8
+        for bi in range(n):
+            r = ROOTS[(bi // 2) % 8] - 12
+            rate = (1, 2, 1.5, 3)[bi % 4]
+            s.add("bass", (a + bi) * 4, inst_wobble(mtof(r), 2.4 * s.beat, rate, s.beat), 0.55)
+            s.add("bass", (a + bi) * 4 + 2.75, inst_wobble(mtof(r + (12 if bi % 2 else 0)), 1.1 * s.beat, 4, s.beat), 0.45)
+    for bi in range(8):
+        r = ROOTS[(bi // 2) % 8] - 12
+        s.add("bass", (8 + bi) * 4, inst_bass(mtof(r + 12), 3.5 * s.beat, "reese"), 0.45)
+    kit = standard_kit(kick={"punch": 1.3, "tone": 52, "length": 0.32}, snare={"tone": 225, "snap": 1.2})
+    kit["ghost"] = lambda c: snare(240, 0.08, 0.5) * 0.35
+    drums(s, 8, 0, {"hat": "x.x.x.x.x.x.x.xo", "shaker": "xxxxxxxxxxxxxxxx"}, kit, 0.55, fill=False)
+    drums(s, 6, 8, {"kick": "x.........x.....", "snare": "....x.......x...", "hat": "x.xxx.xxx.xxx.xo"}, kit, 0.9, fill=False)
+    build(s, 14, 2)
+    for a, n in ((16, 16), (32, 8)):
+        drop(s, a)
+        drums(s, n, a, {"kick": "x.........x..x..", "snare": "....X.......X...", "ghost": ".x.....x.x....x.",
+                        "hat": "x.xxx.xxx.xxx.xo"}, kit, 1.0, fill=False)
     rain = lp(hp(noise(s.length), 1200), 7000) * 0.05
     s.add("amb", 0, rain, 1.0)
-    return s, {"pad": {"reverb": (3.5, 0.45)}, "lead": {"reverb": (3.0, 0.45), "delay": (0.75, 0.45, 0.35)},
-               "bass": {"gain": 0.9}, "drums": {"reverb": (1.0, 0.18)}, "amb": {}}
+    return s, {"pad": {"reverb": (3.5, 0.45), "pump": 0.35}, "lead": {"reverb": (3.0, 0.45), "delay": (0.75, 0.45, 0.35)},
+               "vox": {"reverb": (2.5, 0.35), "delay": (0.75, 0.35, 0.3)}, "bass": {"gain": 0.95, "pump": 0.3},
+               "drums": {"reverb": (1.0, 0.16)}, "fx": {"reverb": (2.5, 0.3)}, "amb": {}}
 
 
 def song_market():
-    """Neon Market - city-pop funk: slap bass, Rhodes, clav stabs, brass theme."""
-    s = Song(112, 24)
-    chords(s, "keys", inst_epiano, 24, 0, 0.45, rhythm=((0, 0.5), (0.75, 0.5), (2, 0.5), (2.75, 1.0)))
-    clav = lambda f, d: lp(square(f, d, 0.2) * decay(int(d * SR), 0.08), 3500) * 0.7
-    chords(s, "clav", clav, 20, 4, 0.3, rhythm=((0.5, 0.25), (1.5, 0.25), (2.5, 0.25), (3.5, 0.25)), octave=1)
+    """Neon Market - nu-disco / funky house: slap bass, Rhodes, clav, brass, vocal chops, 4-on-the-floor."""
+    s = Song(124, 32)
+    chords(s, "keys", inst_epiano, 32, 0, 0.45, rhythm=((0, 0.5), (0.75, 0.5), (2, 0.5), (2.75, 1.0)))
+    clav = lambda f, d: lp(square(f, d, 0.2) * decay(ns(d), 0.08), 3500) * 0.7
+    chords(s, "clav", clav, 28, 4, 0.3, rhythm=((0.5, 0.25), (1.5, 0.25), (2.5, 0.25), (3.5, 0.25)), octave=1)
     melody(s, "lead", inst_brass, 8, 4, 0.55)
-    melody(s, "lead", lambda f, d: inst_lead(f, d, 4000, 0.005), 8, 12, 0.5, octave=1)
-    melody(s, "lead", inst_brass, 4, 20, 0.55)
-    bassline(s, "bass", "slap", 24, 0, 0.55, pattern=((0, .5), (.75, .25, 12), (1.5, .5), (2, .25, 7), (2.5, .5, 12), (3.25, .5)))
-    kit = standard_kit(kick={"punch": 0.9}, snare={"tone": 200})
-    drums(s, 4, 0, {"kick": "x...x...x...x...", "hat": "x.x.x.x.x.x.x.x."}, kit, 0.8)
-    drums(s, 20, 4, {"kick": "x...x...x...x...", "snare": "....x.......x...", "clap": "....x.......x...", "hat": "xxoxxxoxxxoxxxox"}, kit, 0.9)
-    return s, {"keys": {"reverb": (2.0, 0.3)}, "clav": {"delay": (0.25, 0.2, 0.15)}, "lead": {"reverb": (2.0, 0.3)},
-               "bass": {}, "drums": {"reverb": (1.0, 0.18)}}
+    melody(s, "vox", chop, 8, 14, 0.45, octave=0)
+    melody(s, "lead", lambda f, d: inst_lead(f, d, 4000, 0.005), 8, 14, 0.3, octave=1)
+    melody(s, "lead", inst_brass, 8, 24, 0.55, octave=0)
+    bassline(s, "bass", "slap", 32, 0, 0.6, pattern=((0, .5), (.75, .25, 12), (1.5, .5), (2, .25, 7), (2.5, .5, 12), (3.25, .5)))
+    kit = standard_kit(kick={"punch": 1.2, "tone": 50, "length": 0.35}, snare={"tone": 200})
+    drums(s, 4, 0, {"kick": FOUR, "hat": "..x...x...x...x."}, kit, 0.85, fill=False)
+    drums(s, 8, 4, {"kick": FOUR, "clap": "....x.......x...", "hat": "..o...o...o...o.", "shaker": "x.xxx.xxx.xxx.xx"}, kit, 0.95, fill=False)
+    build(s, 12, 2, 0.5)
+    drop(s, 14, 0.7)
+    drums(s, 18, 14, {"kick": FOUR, "clap": "....X.......X...", "hat": "xxoxxxoxxxoxxxox", "snap": "..x.......x....."}, kit, 1.0, fill=False)
+    return s, {"keys": {"reverb": (2.0, 0.3), "pump": 0.35}, "clav": {"delay": (0.25, 0.2, 0.15)}, "lead": {"reverb": (2.0, 0.3)},
+               "vox": {"reverb": (1.8, 0.3), "delay": (0.5, 0.3, 0.25)}, "bass": {"pump": 0.3}, "drums": {"reverb": (1.0, 0.16)},
+               "fx": {"reverb": (2.0, 0.3)}}
 
 
 def song_harbor():
-    """Hover Harbor - tropical house: steel pan theme, marimba, pumping pads."""
-    s = Song(104, 24)
-    chords(s, "pad", inst_pad, 24, 0, 0.4)
-    chords(s, "pluck", lambda f, d: inst_pluck(f, d, 0.5, 0.993), 20, 4, 0.35, rhythm=tuple((0.5 + i, 0.4) for i in range(4)), octave=1)
+    """Hover Harbor - tropical house: steel pan + marimba theme, 'oh' vocal chops, pumping plucks, 4-floor kick."""
+    s = Song(118, 32)
+    chords(s, "pad", inst_pad, 32, 0, 0.4)
+    chords(s, "pluck", lambda f, d: inst_pluck(f, d, 0.5, 0.993), 28, 4, 0.35, rhythm=tuple((0.5 + i, 0.4) for i in range(4)), octave=1)
     melody(s, "lead", inst_steelpan, 8, 4, 0.6)
-    melody(s, "lead", inst_marimba, 8, 12, 0.6, octave=1)
-    melody(s, "lead", inst_steelpan, 4, 20, 0.6, octave=1)
-    bassline(s, "bass", "sub", 20, 4, 0.55, pattern=((0, 0.75), (1.5, 0.5), (2, 0.75), (3.5, 0.5)))
-    kit = standard_kit(kick={"punch": 0.9, "tone": 48})
+    melody(s, "vox", lambda f, d: inst_vox(f, min(d * 0.8, 0.3), "o"), 8, 14, 0.5, octave=0)
+    melody(s, "lead", inst_marimba, 8, 14, 0.45, octave=1)
+    melody(s, "lead", inst_steelpan, 8, 24, 0.6, octave=1)
+    bassline(s, "bass", "sub", 28, 4, 0.6, pattern=((0, 0.75), (1.5, 0.5), (2, 0.75), (3.5, 0.5)))
+    kit = standard_kit(kick={"punch": 1.1, "tone": 50, "length": 0.35})
     drums(s, 4, 0, {"shaker": "x.x.x.x.x.x.x.x.", "snap": "....x.......x..."}, kit, 0.7, fill=False)
-    drums(s, 20, 4, {"kick": "x...x...x...x...", "snap": "....x.......x...", "hat": "..x...x...x...x.", "shaker": "xxxxxxxxxxxxxxxx"}, kit, 0.9)
-    return s, {"pad": {"reverb": (3.0, 0.4), "pump": 0.55}, "pluck": {"pump": 0.5, "delay": (0.75, 0.35, 0.3)},
-               "lead": {"reverb": (2.2, 0.35), "delay": (0.5, 0.3, 0.25)}, "bass": {"pump": 0.35}, "drums": {"reverb": (1.0, 0.2)}}
+    drums(s, 8, 4, {"kick": FOUR, "snap": "....x.......x...", "hat": "..x...x...x...x.", "shaker": "xxxxxxxxxxxxxxxx"}, kit, 0.95, fill=False)
+    build(s, 12, 2, 0.45)
+    drop(s, 14, 0.6)
+    drums(s, 18, 14, {"kick": FOUR, "clap": "....x.......x...", "hat": "..o...o...o...o.", "shaker": "xxxxxxxxxxxxxxxx"}, kit, 1.0, fill=False)
+    return s, {"pad": {"reverb": (3.0, 0.4), "pump": 0.65}, "pluck": {"pump": 0.6, "delay": (0.75, 0.35, 0.3)},
+               "lead": {"reverb": (2.2, 0.35), "delay": (0.5, 0.3, 0.25)}, "vox": {"reverb": (2.0, 0.35), "pump": 0.3},
+               "bass": {"pump": 0.4}, "drums": {"reverb": (1.0, 0.18)}, "fx": {"reverb": (2.5, 0.3)}}
 
 
 def song_sakura():
-    """Sakura Heights - Japanese lo-fi: koto theme, shakuhachi, soft piano, lazy beat."""
-    s = Song(84, 16)
+    """Sakura Heights - Japanese trap: koto theme, shakuhachi, heavy 808 slides, rolling hats, vinyl."""
+    s = Song(140, 32)
     P = to_penta
-    chords(s, "keys", inst_piano, 16, 0, 0.4, rhythm=((0, 2), (2, 2)))
-    melody(s, "lead", lambda f, d: inst_pluck(f, d, 0.6, 0.9975, 500), 8, 4, 0.6, transform=P, pan=-0.1)
-    melody(s, "lead2", lambda f, d: inst_flute(f, d, 0.01), 4, 12, 0.45, transform=P, pan=0.15)
-    bassline(s, "bass", "sub", 16, 0, 0.5, pattern=((0, 1.5), (2.5, 1.5)))
-    kit = standard_kit(kick={"punch": 0.5, "tone": 46}, snare={"tone": 230, "snap": 0.5})
-    drums(s, 4, 0, {"hat": "x...x...x...x..."}, kit, 0.5, fill=False)
-    drums(s, 12, 4, {"kick": "x......x..x.....", "snare": "....x.......x...", "hat": "x.x.x.x.x.x.x.x."}, kit, 0.7)
-    s.add("amb", 0, vinyl(s.length), 0.8)
-    s.buses["drums"] = np.column_stack([lp(s.buses["drums"][:, c], 5500) for c in range(2)])
+    chords(s, "keys", inst_piano, 32, 0, 0.35, rhythm=((0, 2), (2, 2)))
+    melody(s, "lead", lambda f, d: inst_pluck(f, d, 0.6, 0.9975, 500), 8, 0, 0.55, transform=P, pan=-0.1, half=True)
+    melody(s, "lead2", lambda f, d: inst_flute(f, d, 0.01), 8, 16, 0.45, transform=P, pan=0.15, half=True)
+    melody(s, "vox", chop, 8, 16, 0.25, transform=P, octave=1)
+    bass808(s, 24, 8, 0.7, pattern=((0, 1.5), (1.5, 1.0), (2.75, 1.25)))
+    kit = standard_kit(kick={"punch": 1.0, "tone": 48, "length": 0.3}, snare={"tone": 230, "snap": 0.9})
+    drums(s, 8, 0, {"snap": "........x......."}, kit, 0.5, fill=False)
+    drums(s, 6, 8, {"kick": "x......x..x.....", "clap": "........x......."}, kit, 0.9, fill=False)
+    trap_hats(s, 6, 8, 0.4)
+    build(s, 14, 2, 0.45)
+    drop(s, 16, 0.7)
+    drums(s, 16, 16, {"kick": "x......xx.x...x.", "clap": "........x......."}, kit, 1.0, fill=False)
+    trap_hats(s, 16, 16, 0.5)
+    s.add("amb", 0, vinyl(s.length), 0.7)
     return s, {"keys": {"reverb": (2.5, 0.4)}, "lead": {"reverb": (2.8, 0.4), "delay": (0.75, 0.3, 0.25)},
-               "lead2": {"reverb": (3.0, 0.45)}, "bass": {}, "drums": {"reverb": (0.9, 0.15)}, "amb": {}}
+               "lead2": {"reverb": (3.0, 0.45)}, "vox": {"reverb": (2.5, 0.35)}, "bass": {"gain": 1.0},
+               "drums": {"reverb": (0.9, 0.14)}, "fx": {"reverb": (2.5, 0.3)}, "amb": {}}
 
 
 def song_carnival():
-    """Candy Carnival - chiptune circus: square leads, triangle bass, noise drums."""
-    s = Song(140, 24)
+    """Candy Carnival - chip-electro: square leads + arps over a modern pumping 4-floor beat."""
+    s = Song(150, 32)
     melody(s, "lead", lambda f, d: inst_chip(f, d, 0.25), 8, 4, 0.5)
-    melody(s, "lead", lambda f, d: inst_chip(f, d, 0.125), 8, 12, 0.45, octave=1)
-    melody(s, "lead", lambda f, d: inst_chip(f, d, 0.5), 4, 20, 0.5)
-    arp(s, "arp", lambda f, d: inst_chip(f, d, 0.5) * 0.6, 24, 0, 0.18, 0.125, 1, (0, 1, 2, 1, 0, 2))
-    for bi in range(24):
+    melody(s, "lead", lambda f, d: inst_chip(f, d, 0.125), 8, 14, 0.45, octave=1)
+    melody(s, "vox", chop, 8, 14, 0.3)
+    melody(s, "lead", lambda f, d: inst_chip(f, d, 0.5), 8, 24, 0.5)
+    arp(s, "arp", lambda f, d: inst_chip(f, d, 0.5) * 0.6, 32, 0, 0.16, 0.125, 1, (0, 1, 2, 1, 0, 2))
+    for bi in range(4, 32):
         r = ROOTS[bi % 8] + 12
-        for k in range(4):   # oom-pah
-            s.add("bass", bi * 4 + k, inst_bass(mtof(r if k % 2 == 0 else r + 7), 0.45 * s.beat, "tri"), 0.55)
-    kit = {"kick": lambda c: chip_noise(0.12, False) * 1.4, "snare": lambda c: chip_noise(0.15, True) * 1.2,
-           "hat": lambda c: chip_noise(0.03, True) * 0.6}
-    drums(s, 24, 0, {"kick": "x.......x.......", "snare": "....x.......x...", "hat": "x.x.x.x.x.x.x.x."}, kit, 0.9, fill=False)
-    return s, {"lead": {"delay": (0.75, 0.25, 0.2), "reverb": (1.2, 0.15)}, "arp": {"reverb": (1.0, 0.1)}, "bass": {}, "drums": {}}
+        for k in range(8):
+            s.add("bass", bi * 4 + k * 0.5, inst_bass(mtof(r if k % 2 == 0 else r + 12), 0.4 * s.beat, "tri"), 0.5)
+    kit = standard_kit(kick={"punch": 1.3, "tone": 52, "length": 0.3})
+    kit["chip"] = lambda c: chip_noise(0.15, True) * 1.0
+    kit["chat"] = lambda c: chip_noise(0.03, True) * 0.6
+    drums(s, 4, 0, {"chat": "x.x.x.x.x.x.x.x."}, kit, 0.8, fill=False)
+    drums(s, 8, 4, {"kick": FOUR, "chip": "....x.......x...", "chat": "x.x.x.x.x.x.x.x."}, kit, 0.95, fill=False)
+    build(s, 12, 2, 0.45)
+    drop(s, 14, 0.6)
+    drums(s, 18, 14, {"kick": FOUR, "chip": "....x.......x...", "clap": "....x.......x...", "hat": "..o...o...o...o.", "chat": "xxxxxxxxxxxxxxxx"}, kit, 1.0, fill=False)
+    return s, {"lead": {"delay": (0.75, 0.25, 0.2), "reverb": (1.2, 0.15), "pump": 0.3}, "arp": {"reverb": (1.0, 0.1), "pump": 0.5},
+               "vox": {"reverb": (1.5, 0.25)}, "bass": {"pump": 0.5}, "drums": {"reverb": (0.8, 0.1)}, "fx": {"reverb": (2.0, 0.25)}}
 
 
 def song_highway():
-    """Turbo Highway - outrun electro-rock: pumping supersaws, guitar chugs, big drums."""
-    s = Song(128, 28)
-    chords(s, "pad", lambda f, d: inst_supersaw(f, d, 3500), 28, 0, 0.4, rhythm=((0, 4),))
-    for bi in range(20):
+    """Turbo Highway - outrun electro with a heavy bass drop: supersaws, guitar chugs, wobble + 808."""
+    s = Song(140, 36)
+    chords(s, "pad", lambda f, d: inst_supersaw(f, d, 3500), 36, 0, 0.4)
+    for bi in range(4, 14):
         r = ROOTS[bi % 8] + 12
         for k in range(16):
-            s.add("gtr", (8 + bi) * 4 + k * 0.25, inst_guitar_dist([mtof(r), mtof(r + 7)], 0.22 * s.beat, True), 0.25, 0.5 if k % 2 else -0.5)
+            s.add("gtr", bi * 4 + k * 0.25, inst_guitar_dist([mtof(r), mtof(r + 7)], 0.22 * s.beat, True), 0.25, 0.5 if k % 2 else -0.5)
     melody(s, "lead", lambda f, d: inst_supersaw(f, d, 7000) * 0.8, 8, 4, 0.5)
-    melody(s, "lead", inst_brass, 8, 12, 0.5)
-    melody(s, "lead", lambda f, d: inst_supersaw(f, d, 8000) * 0.8, 8, 20, 0.5, octave=1)
-    bassline(s, "bass", "synth", 28, 0, 0.5, pattern=tuple((i * 0.25, 0.22) for i in range(16)))
-    kit = standard_kit(kick={"punch": 1.3, "tone": 50}, snare={"tone": 185, "length": 0.45, "snap": 1.4})
-    drums(s, 4, 0, {"kick": "x...x...x...x...", "hat": "..x...x...x...x."}, kit, 0.85)
-    drums(s, 24, 4, {"kick": "x...x...x...x...", "snare": "....X.......X...", "clap": "....x.......x...", "hat": "..x...x...x...xo"}, kit, 1.0)
-    for b in (4, 12, 20):
-        s.add("drums", b * 4, crash(), 0.8)
-    return s, {"pad": {"reverb": (2.5, 0.35), "pump": 0.6}, "gtr": {"reverb": (0.8, 0.15), "pump": 0.3},
-               "lead": {"reverb": (2.5, 0.35), "delay": (0.75, 0.3, 0.25)}, "bass": {"pump": 0.45}, "drums": {"reverb": (1.2, 0.25)}}
+    melody(s, "lead", inst_brass, 8, 16, 0.45, octave=1)
+    melody(s, "lead", lambda f, d: inst_supersaw(f, d, 8000) * 0.8, 8, 28, 0.5, octave=1)
+    bassline(s, "bass", "synth", 10, 4, 0.5, pattern=tuple((i * 0.25, 0.22) for i in range(16)))
+    for a, n in ((16, 8), (28, 8)):
+        for bi in range(n):
+            r = ROOTS[bi % 8] - 12
+            s.add("bass", (a + bi) * 4, inst_808(mtof(r), 1.0 * s.beat), 0.7)
+            s.add("bass", (a + bi) * 4 + 1, inst_wobble(mtof(r + 12), 1.0 * s.beat, 2, s.beat), 0.45)
+            s.add("bass", (a + bi) * 4 + 2, inst_wobble(mtof(r + 12), 1.5 * s.beat, 3, s.beat), 0.45)
+            s.add("bass", (a + bi) * 4 + 3.5, inst_808(mtof(r), 0.5 * s.beat, 5), 0.6)
+    kit = standard_kit(kick={"punch": 1.4, "tone": 50, "length": 0.35}, snare={"tone": 185, "length": 0.45, "snap": 1.4})
+    drums(s, 4, 0, {"kick": FOUR, "hat": "..x...x...x...x."}, kit, 0.85, fill=False)
+    drums(s, 10, 4, {"kick": FOUR, "snare": "....X.......X...", "hat": "..x...x...x...xo"}, kit, 1.0, fill=False)
+    build(s, 14, 2)
+    for a in (16, 28):
+        drop(s, a)
+        drums(s, 8, a, {"kick": "x.....x...x.....", "snare": "........X.......", "hat": "x.x.x.x.x.x.x.x."}, kit, 1.0, fill=False)
+    drums(s, 2, 24, {"kick": FOUR, "hat": "..x...x...x...x."}, kit, 0.8, fill=False)
+    build(s, 26, 2)
+    return s, {"pad": {"reverb": (2.5, 0.35), "pump": 0.65}, "gtr": {"reverb": (0.8, 0.15), "pump": 0.3},
+               "lead": {"reverb": (2.5, 0.35), "delay": (0.75, 0.3, 0.25)}, "bass": {"pump": 0.2}, "drums": {"reverb": (1.1, 0.2)},
+               "fx": {"reverb": (2.5, 0.3)}}
 
 
 SONGS = {

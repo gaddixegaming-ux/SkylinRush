@@ -7,8 +7,8 @@ const MUSIC_DIR := "res://music/"
 const SFX_DIR := "res://sfx/"
 ## song per zone index (see main.gd ZONES) and each song's tempo
 const ZONE_SONGS := ["sky", "festival", "skate", "rain", "market", "harbor", "sakura", "carnival", "highway"]
-const BPM := {"menu": 88.0, "sky": 118.0, "festival": 124.0, "skate": 168.0, "rain": 174.0,
-	"market": 112.0, "harbor": 104.0, "sakura": 84.0, "carnival": 140.0, "highway": 128.0}
+const BPM := {"menu": 110.0, "sky": 128.0, "festival": 140.0, "skate": 184.0, "rain": 176.0,
+	"market": 124.0, "harbor": 118.0, "sakura": 140.0, "carnival": 150.0, "highway": 140.0}
 const MUSIC_DB := -7.0
 const FADE := 2.2
 

@@ -70,6 +70,7 @@ func _initialize() -> void:
 			await _test_trick()
 		if t == 0:
 			await _test_hole()
+			await _test_bus()
 		if t == 4:
 			await _test_powers()
 		if t == 8:
@@ -124,6 +125,49 @@ func _test_hole() -> void:
 	print("hole spawned len ", hl)
 	await _wait(1.0)
 	await _shot("hole")
+	main.grace = 9999.0
+
+
+## Bus ramps and parked buses must be climbable, never an unfair death.
+func _test_bus() -> void:
+	for case in ["ramp", "ramp_side", "jump_back"]:
+		main.start_zone = 0
+		main._start_game()
+		main.grace = 0.0
+		var w = main.world
+		for c in w.objects.get_children():
+			c.queue_free()
+		await process_frame
+		var lane := -1 if case == "ramp_side" else 0
+		main.player.lane = lane
+		main.player.position.x = lane * 2.5
+		w._spawn_bus(0, -45.0, false, case != "jump_back")
+		for c in w.objects.get_children():
+			c.set_meta("test", true)
+		var maxy := 0.0
+		var did := false
+		var el := 0.0
+		while el < 3.0 and main.state == main.State.PLAYING:
+			for c in w.objects.get_children():
+				if not c.has_meta("test") and c.get_meta("kind") != "coin" and c.position.z > -80.0:
+					c.queue_free()
+			var bus = null
+			var rmp = null
+			for c in w.objects.get_children():
+				if c.has_meta("test") and c.get_meta("kind") == "bus":
+					bus = c
+				if c.has_meta("test") and c.get_meta("kind") == "ramp":
+					rmp = c
+			if not did and case == "ramp_side" and rmp != null and rmp.position.z + 3.0 > 3.0:
+				did = true
+				main._on_dir(1)
+			if not did and case == "jump_back" and bus != null and bus.position.z + 5.5 > -main.speed * 0.42:
+				did = true
+				main.player.press_jump()
+			maxy = maxf(maxy, main.player.position.y)
+			await process_frame
+			el += minf(main.get_process_delta_time(), 0.05)
+		print("bus %-10s alive=%s  max_y=%.2f" % [case, main.state == main.State.PLAYING, maxy])
 	main.grace = 9999.0
 
 
