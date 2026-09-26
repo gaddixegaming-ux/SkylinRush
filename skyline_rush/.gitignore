@@ -1,3 +1,4 @@
 .godot/
 *.tmp
 tools/shots/
+__pycache__/

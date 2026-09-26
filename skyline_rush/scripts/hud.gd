@@ -764,7 +764,7 @@ func _build_menu() -> void:
 	ch.add_child(cv)
 	char_hobby = _label("RUNNER 1 / 6  ·  Q / E", 14, TEXT_DIM)
 	cv.add_child(char_hobby)
-	char_name = _label("FOX", 30, Color.WHITE)
+	char_name = _label("HOOPS", 30, Color.WHITE)
 	cv.add_child(char_name)
 	var cnext := _button(">", PINK, 54, 54, 26)
 	cnext.pressed.connect(func(): char_changed.emit(1))

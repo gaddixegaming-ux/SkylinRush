@@ -17,6 +17,13 @@ func _initialize() -> void:
 	get_root().add_child(main)
 	await _wait(3.0)
 	await _shot("menu")
+	# every runner's lobby
+	for i in main.RigScript.count() - 1:
+		main._select_char(1)
+		await _wait(1.2)
+		await _shot("room_%d" % main.char_idx)
+		print("lobby %d  visible=%s" % [main.char_idx, main.lobby.rooms.get(main.char_idx, main).visible])
+	main._select_char(1)
 	# garage + upgrades
 	main.prog.wallet = 50000
 	main._open_panel("garage")
@@ -65,6 +72,11 @@ func _initialize() -> void:
 			await _test_hole()
 		if t == 4:
 			await _test_powers()
+		if t == 8:
+			main.player.press_slide()
+			await _wait(0.25)
+			print("moto slide  sliding=%s  lay=%.2f" % [main.player.is_sliding(), main.player.model.rotation.z])
+			await _shot("moto_slide")
 	# skyway camera: put the runner on a sky-highway
 	main.start_zone = 1
 	main._start_game()
@@ -131,7 +143,7 @@ func _autopilot() -> void:
 	var need := ""
 	for obj in main.world.objects.get_children():
 		var k: String = obj.get_meta("kind")
-		if not k in ["jump", "slide", "car", "speaker", "crate", "drone", "pop_wall", "pop_spikes", "drop"]:
+		if not k in ["jump", "slide", "car", "speaker", "crate", "drone", "pop_wall", "pop_spikes", "drop", "bus"]:
 			continue
 		var z: float = obj.position.z
 		if z > 1.0 or z < -30.0:

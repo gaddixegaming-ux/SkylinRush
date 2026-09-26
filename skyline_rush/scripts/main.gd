@@ -13,6 +13,7 @@ const ThemesScript := preload("res://scripts/themes.gd")
 const RigScript := preload("res://characters/character_rig.gd")
 const ProgressScript := preload("res://scripts/progress.gd")
 const VehScript := preload("res://scripts/vehicles.gd")
+const LobbyScript := preload("res://scripts/lobby.gd")
 
 const LANE_WIDTH := 2.5
 const START_SPEED := 16.0
@@ -143,6 +144,8 @@ var panel := ""          # menu overlay: "", "garage", "upgrades"
 var garage_type := "skate"
 var garage_pick := {}
 var stage: Node3D
+var lobby: Node3D
+var splash: Control
 var stage_ring: MeshInstance3D
 var stage_mats: Array = []
 
@@ -153,7 +156,7 @@ func _ready() -> void:
 	randomize()
 	prog = ProgressScript.new()
 	prog.load_file()
-	char_idx = clampi(prog.char_idx, 0, RigScript.count() - 1)
+	char_idx = clampi(prog.char_idx, 1, RigScript.count() - 1)  # 0 (the old fox) is retired
 	start_zone = clampi(prog.track, 0, ZONES.size() - 1)
 	for t in VehScript.TYPES:
 		garage_pick[t] = prog.equipped[t]
@@ -168,7 +171,12 @@ func _ready() -> void:
 	add_child(player)
 	player.jumped.connect(_on_jumped)
 	player.landed.connect(_on_landed)
-	player.slid.connect(func(): audio.play("slide", randf_range(0.95, 1.05), -4.0))
+	player.slid.connect(func():
+		if player.vehicle == "moto" or player.vehicle == "hover":
+			audio.play("grind", 0.55, -3.0)
+			audio.play("dash", 0.8, -8.0)
+		else:
+			audio.play("slide", randf_range(0.95, 1.05), -4.0))
 	player.grapple_released.connect(_on_grapple_released)
 	player_light = OmniLight3D.new()
 	player_light.position = Vector3(0, 2.6, 1.8)
@@ -207,7 +215,50 @@ func _ready() -> void:
 	zone_cur = ZONES[0].duplicate()
 	_apply_zone(zone_cur)
 	_build_stage()
+	lobby = LobbyScript.new()
+	add_child(lobby)
+	lobby.setup(world.themes)
 	_enter_menu()
+	_show_splash()
+
+
+## Studio splash: the Chaos Games card fades out over the menu (any key skips).
+func _show_splash() -> void:
+	var tex = load("res://splash.png")
+	if tex == null or DisplayServer.get_name() == "headless":
+		return
+	var layer := CanvasLayer.new()
+	layer.layer = 100
+	layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(layer)
+	var bg := ColorRect.new()
+	bg.color = Color(0.96, 0.96, 0.96)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	bg.gui_input.connect(func(e: InputEvent):
+		if e is InputEventMouseButton and e.pressed:
+			_end_splash())
+	layer.add_child(bg)
+	var img := TextureRect.new()
+	img.texture = tex
+	img.set_anchors_preset(Control.PRESET_FULL_RECT)
+	img.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	img.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	bg.add_child(img)
+	splash = bg
+	var tw := create_tween()
+	tw.tween_interval(2.6)
+	tw.tween_callback(_end_splash)
+
+
+func _end_splash() -> void:
+	if splash == null:
+		return
+	var s := splash
+	splash = null
+	var tw := create_tween()
+	tw.tween_property(s, "modulate:a", 0.0, 0.6)
+	tw.tween_callback(s.get_parent().queue_free)
 
 
 func _build_env() -> void:
@@ -518,6 +569,11 @@ func _setup_input() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_echo():
 		return
+	if splash != null:
+		if event.is_pressed():
+			_end_splash()
+			get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("fullscreen"):
 		var fs := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if fs else DisplayServer.WINDOW_MODE_FULLSCREEN)
@@ -639,8 +695,10 @@ func _enter_menu() -> void:
 	player.set_props(true)
 	hud.show_menu(prog.best, prog.wallet)
 	hud.set_upgrade_summary(_upgrade_data())
+	audio.play_song("menu")
 	_show_char()
 	_show_track()
+	_show_lobby()
 
 
 func _show_track() -> void:
@@ -652,7 +710,7 @@ func _show_track() -> void:
 func _select_char(dir: int) -> void:
 	if state != State.MENU:
 		return
-	char_idx = posmod(char_idx + dir, RigScript.count())
+	char_idx = 1 + posmod(char_idx - 1 + dir, RigScript.count() - 1)
 	var veh: String = player.vehicle
 	var var_i: int = player.veh_variant
 	player.reset()
@@ -661,15 +719,37 @@ func _select_char(dir: int) -> void:
 	if panel == "garage" and veh != "":
 		player.set_vehicle(veh, var_i)
 	_show_char()
+	_show_lobby()
 	hud.flash(Color.WHITE, 0.2)
 	audio.play("click", 1.2 + dir * 0.1)
 	prog.char_idx = char_idx
 	prog.save()
 
 
+## Menu backdrop: each runner's own lobby (court, gym, bedroom, golf, rooftop);
+## The garage uses the showroom stage.
+func _show_lobby() -> void:
+	var has: bool = state == State.MENU and panel != "garage" and lobby.show_for(char_idx)
+	if not has:
+		lobby.show_for(-1)
+	stage.visible = state == State.MENU and not has
+	if has:
+		_set_weather("none", false)
+		env.ssr_enabled = true
+		var m: Array = LobbyScript.SKY[char_idx]
+		sky_mat.sky_top_color = m[0]
+		sky_mat.sky_horizon_color = m[1]
+		sky_mat.ground_horizon_color = m[1]
+		sun.light_color = m[2]
+		sun.light_energy = m[3]
+		env.ambient_light_energy = m[4]
+	else:
+		_snap_zone(start_zone)
+
+
 func _show_char() -> void:
 	var d: Dictionary = RigScript.CHARACTERS[char_idx]
-	hud.set_character(d["name"], d["hobby"], char_idx, RigScript.count())
+	hud.set_character(d["name"], d["hobby"], char_idx - 1, RigScript.count() - 1)
 
 
 func _select_track(dir: int) -> void:
@@ -680,6 +760,7 @@ func _select_track(dir: int) -> void:
 	world.reset(false)
 	_snap_zone(start_zone)
 	_show_track()
+	_show_lobby()
 	hud.flash(Color.WHITE, 0.3)
 	audio.play("click", 1.0 + dir * 0.1)
 	prog.track = start_zone
@@ -736,12 +817,15 @@ func _start_game() -> void:
 	player.set_props(false)
 	state = State.PLAYING
 	stage.visible = false
+	lobby.show_for(-1)
+	env.ssr_enabled = false
 	world.visible = true
 	hud.show_game()
 	hud.zone_banner(ZONES[start_zone]["name"], "TRACK  %d" % (start_zone + 1))
 	hud.popup("GO!", CYAN, 70)
 	audio.play("portal", 1.2, -6.0)
 	_update_vehicle_zone(true)
+	audio.play_zone(start_zone)
 
 
 func _set_paused(on: bool) -> void:
@@ -803,6 +887,7 @@ func _open_panel(p: String) -> void:
 		return
 	panel = p
 	audio.play("click", 1.1)
+	_show_lobby()
 	if p == "garage":
 		_garage_tab(garage_type)
 	elif p == "upgrades":
@@ -931,6 +1016,7 @@ func _play_step(delta: float) -> void:
 	revive_bridge_t = maxf(0.0, revive_bridge_t - delta)
 	_update_vehicle_zone(false)
 	_move_drones(delta)
+	_move_buses(delta)
 	player.jump_mult = 1.3 if pw["springs"] > 0.0 else 1.0
 
 	# wall run bookkeeping
@@ -944,6 +1030,17 @@ func _play_step(delta: float) -> void:
 		else:
 			_add_flow(7.0 * delta)
 			score += 40.0 * delta * _score_mult()
+			grind_fx_t -= delta
+			if grind_fx_t <= 0.0:
+				grind_fx_t = 0.07
+				fx.burst(Vector3(player.wall_side * 4.9, player.position.y + 0.1, 0.3), Color(0.85, 0.82, 0.9), 2, 3.0, 0.08, 0.3, 4.0)
+
+	if player.is_sliding() and player.vehicle == "moto":
+		# knee-down power-slide throws sparks off the bike
+		grind_fx_t -= delta
+		if grind_fx_t <= 0.0:
+			grind_fx_t = 0.05
+			fx.burst(player.position + Vector3(player.slide_side * 0.5, 0.1, 0.4), Color(1.0, 0.75, 0.3), 3, 5.0, 0.06, 0.25, 6.0)
 
 	_compute_floor(delta)
 	player.tick(delta, eff, true)
@@ -1082,6 +1179,16 @@ func _compute_floor(delta: float) -> void:
 	on_rail = false
 	for obj in world.objects.get_children():
 		var kind: String = obj.get_meta("kind")
+		if kind == "ramp":
+			# bus ramp: the floor rises along its length
+			var rb: AABB = obj.get_meta("box")
+			var ro: Vector3 = obj.position
+			if absf(px - ro.x) < 1.25 and 0.0 < ro.z + rb.end.z and 0.0 > ro.z + rb.position.z:
+				var k := clampf((ro.z + rb.end.z) / rb.size.z, 0.0, 1.0)
+				var rh := rb.size.y * k
+				if py >= rh - 1.3 and rh >= f:
+					f = rh
+			continue
 		if not kind in WorldScript.SOLID:
 			continue
 		var box: AABB = obj.get_meta("box")
@@ -1093,6 +1200,21 @@ func _compute_floor(delta: float) -> void:
 				f = top
 				on_rail = kind == "rail"
 	player.floor_y = f
+
+
+## Oncoming buses drive at you; one stops if something else is in its way.
+func _move_buses(delta: float) -> void:
+	var objs: Array = world.objects.get_children()
+	for b in objs:
+		if b.get_meta("kind") != "bus" or float(b.get_meta("move", 0.0)) <= 0.0 or b.position.z < -140.0:
+			continue
+		var front: float = b.position.z + 5.5
+		for o in objs:
+			if o != b and absf(o.position.x - b.position.x) < 1.0 and o.position.z > front - 1.0 and o.position.z < front + 8.0 \
+					and o.get_meta("kind") in ["car", "speaker", "crate", "bus", "jump", "slide", "pop_wall", "pop_spikes", "drop", "rail"]:
+				b.set_meta("move", 0.0)
+				break
+		b.position.z += float(b.get_meta("move", 0.0)) * delta
 
 
 func _move_drones(wdelta: float) -> void:
@@ -1142,7 +1264,7 @@ func _check_objects(delta: float) -> void:
 					and player.position.y < 0.6:
 				obj.set_meta("hit", true)
 				_boost_pad()
-		elif kind in ["jump", "slide", "car", "speaker", "crate", "drone", "rail", "pop_wall", "pop_spikes", "drop"]:
+		elif kind in ["jump", "slide", "car", "speaker", "crate", "drone", "rail", "pop_wall", "pop_spikes", "drop", "bus"]:
 			var box: AABB = obj.get_meta("box")
 			var wb := AABB(box.position + obj.position, box.size)
 			if not obj.get_meta("passed", false) and wb.position.z > 0.6:
@@ -1197,6 +1319,7 @@ func _tick_powers(delta: float) -> void:
 			pw[id] = maxf(0.0, pw[id] - delta)
 			if pw[id] == 0.0:
 				hud.popup(POWER_NAME[id] + "  OVER", Color(0.8, 0.78, 0.9), 28)
+				audio.play("powerdown", 1.0, -6.0)
 				_update_power_visuals()
 
 
@@ -1418,7 +1541,7 @@ func _trick_landed() -> void:
 		if obj.is_queued_for_deletion():
 			continue
 		var kind: String = obj.get_meta("kind")
-		if kind in ["jump", "slide", "car", "speaker", "crate", "drone", "pop_wall", "pop_spikes", "drop"] \
+		if kind in ["jump", "slide", "car", "speaker", "crate", "drone", "pop_wall", "pop_spikes", "drop", "bus"] \
 				and obj.position.z > -10.0 and obj.position.z < 3.0 and absf(obj.position.x) < 1.6:
 			world.smash(obj, fx)
 	var pts := (500 if player.boarding else 250) * _score_mult()
@@ -1591,7 +1714,7 @@ func _mount(type: String, instant := false) -> void:
 	fx.ring(player.position + Vector3(0, 0.3, 0), ThemesScript.ACCENT[zone_idx], 3.0, 0.4, 0.0, true)
 	if not instant:
 		cam.punch_fov(8.0)
-	audio.play("orb", 0.8)
+	audio.play("hover" if type == "hover" else "engine", 1.0, -3.0)
 	hud.popup("%s  ·  %s" % [VehScript.TYPE_NAME[type], VehScript.variant_name(type, variant)], ThemesScript.ACCENT[zone_idx], 40)
 
 
@@ -1621,6 +1744,7 @@ func _skate_trick() -> void:
 	var pts: int = 40 * skate_combo * _score_mult()
 	score += pts
 	_add_flow(6.0 + skate_combo)
+	audio.play("trick", randf_range(0.95, 1.1), -2.0)
 	var txt: String = player.board_trick
 	if skate_combo > 1:
 		txt += "   x%d COMBO" % skate_combo
@@ -1657,8 +1781,8 @@ func _update_grind(delta: float) -> void:
 	if grind_fx_t <= 0.0:
 		grind_fx_t = 0.05
 		fx.burst(player.position + Vector3(0, 0.1, 0.2), Color(1.0, 0.8, 0.3), 3, 6.0, 0.07, 0.25, 12.0)
-		if int(grind_t * 20.0) % 5 == 0:
-			audio.play("slide", 1.7, -8.0)
+		if int(grind_t * 20.0) % 6 == 0:
+			audio.play("grind", randf_range(0.95, 1.05), -8.0)
 
 
 func _update_traps(delta: float, world_speed: float) -> void:
@@ -1689,7 +1813,7 @@ func _revive() -> void:
 	revive_cost *= 2
 	for obj in world.objects.get_children():
 		var kind: String = obj.get_meta("kind")
-		if kind in ["jump", "slide", "car", "speaker", "crate", "drone", "rail", "pop_wall", "pop_spikes", "drop"] \
+		if kind in ["jump", "slide", "car", "speaker", "crate", "drone", "rail", "pop_wall", "pop_spikes", "drop", "bus"] \
 				and obj.position.z > -45.0:
 			world.smash(obj, fx)
 	Engine.time_scale = 1.0
@@ -1836,6 +1960,7 @@ func _begin_zone(idx: int, announce: bool) -> void:
 	zone_idx = idx
 	zone_t = 0.0
 	_set_weather(ZONES[idx]["fx"], ZONES[idx]["wet"])
+	audio.play_zone(idx)
 	if announce:
 		var vt: String = VEH_ZONE.get(idx, "")
 		hud.zone_banner(ZONES[idx]["name"], ("TRACK  %d" % (idx + 1)) + (("   ·   " + VehScript.TYPE_NAME[vt] + " ZONE") if vt != "" else ""))
@@ -1869,6 +1994,7 @@ func _tick_warp(delta: float) -> void:
 		zone_start = distance
 		veh_granted_zone = -1
 		_snap_zone(warp_target)
+		audio.play_zone(warp_target)
 		hud.zone_banner(ZONES[warp_target]["name"], "WARPED  ·  TRACK  %d" % (warp_target + 1))
 		var pts := 300 * _score_mult()
 		score += pts

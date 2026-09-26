@@ -26,8 +26,8 @@ const SLIDE_TIME := 0.7
 const COYOTE := 0.12
 const JUMP_BUFFER := 0.15
 const LANE_K := 340.0
-const WALL_X := 4.72
-const WALL_Y := 1.3
+const WALL_X := 4.86  # feet on the wall surface
+const WALL_Y := 1.75
 const AIR_DASH_TIME := 0.28
 const SKY_JUMP_VELOCITY := 25.0
 const SKY_TAP_WINDOW := 0.32
@@ -76,6 +76,7 @@ var phase_t := 0.0
 var cores: Array = []
 var boarding := false
 var rig = null
+var slide_side := 1.0  # which way the bike is laid down in a power-slide
 var char_idx := 0
 var jump_serial := 0
 var last_jump_kind := ""
@@ -591,7 +592,7 @@ func tick(delta: float, speed: float, running: bool) -> void:
 			release_grapple(false)
 	elif wall_side != 0:
 		wall_t -= delta
-		position.y = lerpf(position.y, WALL_Y, 1.0 - exp(-12.0 * delta))
+		position.y = lerpf(position.y, WALL_Y + sin(anim_t * 0.5) * 0.08, 1.0 - exp(-12.0 * delta))
 		vy = 0.0
 		grounded = false
 		if wall_t <= 0.0:
@@ -601,6 +602,8 @@ func tick(delta: float, speed: float, running: bool) -> void:
 		vy = maxf(vy - GRAVITY * 0.1 * delta, 0.0)
 		position.y += vy * delta
 	else:
+		if grounded and floor_y > position.y and floor_y - position.y < 1.3 and vy <= 0.5:
+			position.y = floor_y  # step up onto a rising floor (bus ramp)
 		var g := GRAVITY
 		if vy < 0.0:
 			g *= FALL_MULT
@@ -657,7 +660,7 @@ func _animate(delta: float, speed: float, running: bool) -> void:
 		leg_r.rotation.x = -swing * 1.1
 		arm_l.rotation = Vector3(-swing * 0.9, 0, -0.5)
 		arm_r.rotation = Vector3(swing * 0.9, 0, 0.5)
-		target_rot.z = wall_side * 1.15
+		target_rot.z = wall_side * 1.38  # near-horizontal, Prince-of-Persia style
 		body_pivot.position.y = absf(sin(anim_t)) * 0.06
 	elif air_dash_t > 0.0:
 		leg_l.rotation.x = 0.6
@@ -709,7 +712,8 @@ func _animate(delta: float, speed: float, running: bool) -> void:
 		body_pivot.position = Vector3.ZERO
 	body_pivot.rotation.y = lerpf(body_pivot.rotation.y, stance, 1.0 - exp(-12.0 * delta))
 	if vehicle == "hover" and veh_node != null:
-		model.position.y = 0.42 + sin(anim_t * 0.35) * 0.05
+		var hy := 0.12 if is_sliding() else 0.42 + sin(anim_t * 0.35) * 0.05
+		model.position.y = lerpf(model.position.y, hy, 1.0 - exp(-16.0 * delta))
 
 	if rig != null and anchor == null:
 		target_rot.x = 0.0  # the character's own clips handle lean / slide poses
@@ -731,6 +735,11 @@ func _animate(delta: float, speed: float, running: bool) -> void:
 		model.rotation.z = -air_dash_dir * TAU * prog
 	elif wall_side != 0:
 		model.rotation.z = lerpf(model.rotation.z, target_rot.z, k)
+	elif is_sliding() and (vehicle == "moto" or vehicle == "hover"):
+		# power-slide: lay the bike down on its side and skid under the bar
+		if absf(x_vel) > 1.0:
+			slide_side = signf(-x_vel)
+		model.rotation.z = lerpf(wrapf(model.rotation.z, -PI, PI), slide_side * 1.2, 1.0 - exp(-22.0 * delta))
 	else:
 		model.rotation.z = lerpf(wrapf(model.rotation.z, -PI, PI), clampf(-x_vel * 0.035, -0.45, 0.45), k)
 	model.rotation.y = 0.0

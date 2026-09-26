@@ -6,7 +6,7 @@ extends Node3D
 const LIB := preload("res://characters/animations.res")
 const SCALE := 1.85  # models are ~1 m tall; the runner is ~1.85 m
 
-## 0 is the built-in fox (no rig). Textures: drop  characters/textures/<tex>.png/.jpg
+## 0 is the retired built-in fox (no rig, not selectable). Textures: drop  characters/textures/<tex>.png/.jpg
 const CHARACTERS := [
 	{"name": "FOX", "hobby": "Built-in runner"},
 	{"name": "HOOPS", "hobby": "Dribbling", "model": "res://characters/source/Medium_Run.fbx",
@@ -189,7 +189,7 @@ func play_hobby(delta: float) -> void:
 	play(list[hobby_i % list.size()], 0.3)
 	rotation.y = 0.0
 	if ball:
-		_update_ball()
+		_update_ball_clip(delta)
 
 
 func set_props(on: bool) -> void:
@@ -370,6 +370,49 @@ func _update_ball() -> void:
 	var local := to_local(hand)
 	var bounce := absf(sin(t * PI * 2.2))
 	ball.position = Vector3(local.x, lerpf(0.07, maxf(local.y - 0.08, 0.1), bounce), local.z)
+
+
+## Dribble clip: the ball rides the right hand on the push-down, leaves it at
+## the bottom of the stroke, bounces off the floor and meets the hand again at
+## the top (air time learned from the clip's own rhythm).
+var drib_air := -1.0
+var drib_tair := 0.45
+var drib_prev_y := 0.0
+var drib_prev_v := 0.0
+var drib_rel_y := 0.3
+var drib_rel_t := 0.0
+
+func _update_ball_clip(delta: float) -> void:
+	const R := 0.07
+	var hi := skel.find_bone("mixamorig_RightHand")
+	var hand := to_local((skel.global_transform * skel.get_bone_global_pose(hi)).origin)
+	var hv := (hand.y - drib_prev_y) / maxf(delta, 0.001)
+	var palm := hand.y - R - 0.03
+	var y: float
+	if drib_air < 0.0:
+		y = palm
+		if drib_prev_v < -0.02 and hv >= -0.02:  # bottom of the stroke: let go
+			drib_air = 0.0
+			drib_rel_y = palm
+			drib_rel_t = t
+	else:
+		drib_air += delta / drib_tair
+		var s := minf(drib_air, 1.0)
+		const SB := 0.4
+		if s < SB:
+			y = R + (drib_rel_y - R) * (1.0 - pow(s / SB, 2.0))
+		else:
+			var u := (s - SB) / (1.0 - SB)
+			y = R + (palm - R) * (1.0 - pow(1.0 - u, 2.0))
+		var top := drib_prev_v > 0.02 and hv <= 0.02
+		if top or drib_air >= 1.3:
+			if top:
+				drib_tair = lerpf(drib_tair, clampf(t - drib_rel_t, 0.2, 0.9), 0.5)
+			drib_air = -1.0
+	ball.position = Vector3(hand.x, maxf(y, R), hand.z - 0.02)
+	ball.rotation.x += delta * 6.0
+	drib_prev_y = hand.y
+	drib_prev_v = hv
 
 
 func _headphones() -> void:
@@ -574,6 +617,8 @@ func drive(p, speed: float, delta: float) -> void:
 		play("jump2", 0.15, 0.6)
 	elif p.stumble_t > 0.0:
 		play("trip", 0.06, 1.3)
+	elif p.wall_side != 0:
+		play("run", 0.1, run_rate(speed) * 1.35)  # fast wall-run stride
 	elif p.air_dash_t > 0.0 or p.slamming:
 		play("dash", 0.08)
 	elif not p.grounded and p.wall_side == 0:
@@ -593,12 +638,12 @@ func drive(p, speed: float, delta: float) -> void:
 
 ## Run playback rate synced to the ground speed. The Medium Run clip covers
 ## 2.44 x hip-height per 0.567 s cycle; the game moves much faster than a real
-## run, so legs play at 60 % of the true sync (clamped) to read as fast but clean.
+## run, so legs play at 42 % of the true sync (clamped) to read as fast but clean.
 func run_rate(speed: float) -> float:
 	if stride_speed <= 0.0:
 		var hip := _local_bone("mixamorig_Hips").y * scale.y
 		stride_speed = maxf(2.44 * maxf(hip, 0.5) / 0.567, 1.0)
-	return clampf(speed / stride_speed * 0.6, 1.3, 3.4)
+	return clampf(speed / stride_speed * 0.42, 1.1, 2.3)
 
 
 ## Grapple: one arm up on the rope, the other out for balance, legs swinging.

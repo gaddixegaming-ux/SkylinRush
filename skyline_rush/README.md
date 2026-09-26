@@ -1,6 +1,44 @@
-# SKYLINE RUSH v7: endless runner with 9 tracks, 6 runners, 3 rideable vehicles (Godot 4.3+, PC)
+# SKYLINE RUSH v8: endless runner with 9 tracks, 5 runners, 3 rideable vehicles (Godot 4.3+, PC)
 
 Open Godot 4.3 or newer → Import → choose `project.godot` → press F5.
+
+## What's new in v8
+- **Soundtrack:** 10 original songs, one per track plus the menu, all built on the **same melody** in different styles:
+  - menu: lo-fi
+  - Sky Roads: synthwave
+  - Lantern Festival: Chinese festive
+  - Skate Park: pop-punk
+  - Rain Alley: drum & bass
+  - Neo Market: city-pop
+  - Harbor: tropical house
+  - Sakura: Japanese lo-fi
+  - Carnival: chiptune
+  - Turbo Highway: outrun
+
+  Songs **crossfade smoothly** (2.2 s, equal-power) when you enter a new map. They are rendered by `tools/music/compose.py`.
+- **New SFX pack:** 31 synthesised sounds for coins, jumps, landings, crashes, shields, vehicles, tricks, grinds and more (`tools/music/sfx.py`).
+- **Lobbies:** every runner waits in their own detailed place, with lights, glossy floors and a reflection probe:
+  - HOOPS: a street court at sunset.
+  - ROCKY: a boxing gym.
+  - PIXEL: a bedroom with toys, books, a desk, fairy lights and a night window.
+  - ACE: a golf course.
+  - CHILL: a neon rooftop.
+- **HOOPS dribble:** now uses the Mixamo *Dribble* clip. The ball is held on the push-down, bounces off the floor and meets the hand again.
+- **The fox is retired.** The roster is HOOPS, ROCKY, PIXEL, ACE and CHILL.
+- **Buses:** parked and oncoming buses, with coins on the roofs of parked ones. There are also **bus ramps** you can run up and along.
+- **Detailed obstacles:**
+  - cars with windows, mirrors, grilles, plates and hubcaps
+  - crates with planks
+  - amps with feet and reflectors
+  - lasers with emitters and cables
+  - drones with arms, eye and LED
+- **Coins:** fewer of them, smaller, and a new rimmed design with an embossed star.
+- **Cinematic death camera:** it sweeps around to the side and never looks back at the vanished road.
+- **Run animation:** slower, and synced to the running speed.
+- **Wall run:** a Prince-of-Persia style wall run. The runner is tilted onto the wall with a fast stride and throws dust.
+- **Moto / hover power-slide:** press **S** while riding to lay the bike down and skid under obstacles. The moto throws sparks.
+- **Fullscreen by default** (F11 toggles it).
+- **Chaos Games splash screen** at boot. Press any key or click to skip.
 
 ## What's new in v7
 - **Detailed buildings:** every town building is now fully built:
@@ -184,7 +222,6 @@ On the menu, press **Q / E** (or click the arrows) to pick a runner. Mixamo char
 
 | Runner | Model file | Lobby hobby and props |
 |---|---|---|
-| FOX | built-in | jogs the track preview |
 | HOOPS | Medium_Run.fbx | dribbling, with a bouncing ball. Uses the lean clip until **Dribble.fbx** is added |
 | ROCKY | Punching_Bag.fbx | punching bag on a frame |
 | PIXEL | Gaming.fbx | bean bag, TV and console |

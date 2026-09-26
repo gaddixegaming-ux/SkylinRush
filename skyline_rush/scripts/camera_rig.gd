@@ -23,6 +23,7 @@ var roll_kick := 0.0
 var roll_kick_vel := 0.0
 var noise := FastNoiseLite.new()
 var ground_ref := 0.0
+var dead_t := 0.0
 
 
 func _ready() -> void:
@@ -63,6 +64,8 @@ func update_cam(delta: float, player, speed_factor: float, extra_fov: float, cur
 	var target_roll := 0.0
 	var fov_mod := 0.0
 
+	if mode != Mode.DEAD:
+		dead_t = 0.0
 	match mode:
 		Mode.MENU:
 			var lobby := true
@@ -128,13 +131,21 @@ func update_cam(delta: float, player, speed_factor: float, extra_fov: float, cur
 				rate = 14.0
 			target_roll += clampf(-player.x_vel * 0.012, -0.14, 0.14) - curve.x * 45.0
 		Mode.DEAD:
-			target_pos = p + Vector3(3.0, 2.4, 4.8)
-			if player.fell:
-				target_pos = Vector3(p.x + 2.0, 4.5, 5.0)
-			target_look = p + Vector3(0, 0.8, 0)
-			rate = 3.0
-			orbit += delta * 0.4
-			target_pos = p + Vector3(sin(orbit) * 4.5 + 1.5, 2.4, cos(orbit) * 4.5 + 2.0) if not player.fell else target_pos
+			# cinematic but always facing forward: starts behind the runner,
+			# sweeps up and out to the side (never past 72 deg, so the camera
+			# never looks back at the road that has already scrolled away),
+			# then slowly pushes in with a slight dutch tilt
+			dead_t += delta
+			var k := smoothstep(0.0, 1.0, clampf(dead_t / 2.6, 0.0, 1.0))
+			var side := -1.0 if p.x > 0.5 else 1.0
+			var ang := lerpf(0.25, 1.25, k) * side
+			var r := lerpf(5.8, 3.9, k)
+			var h := lerpf(3.0, 1.7, k) + (2.5 if player.fell else 0.0)
+			target_pos = p + Vector3(sin(ang) * r, h, cos(ang) * r)
+			target_look = p + Vector3(0, 0.7 if not player.fell else -0.5, -1.2)
+			target_roll = side * 0.08 * k
+			fov_mod -= 8.0 * k
+			rate = 3.5
 
 	# smoothed base position (lateral faster than vertical)
 	var k_xz := 1.0 - exp(-rate * 1.2 * delta)

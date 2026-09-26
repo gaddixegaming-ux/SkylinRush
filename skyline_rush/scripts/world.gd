@@ -10,7 +10,7 @@ const WORLD_VC := preload("res://shaders/world_vc.gdshader")
 const BATCH_KEYS := ["box", "sphere", "cyl", "pipe", "cone"]
 const ThemesScript := preload("res://scripts/themes.gd")
 const WEAK := ["jump", "crate", "drone", "pop_spikes", "drop"]
-const SOLID := ["car", "speaker", "crate", "platform", "rail", "pop_wall", "drop"]
+const SOLID := ["car", "speaker", "crate", "platform", "rail", "pop_wall", "drop", "bus"]
 
 const LANE_WIDTH := 2.5
 const TILE := 4.0
@@ -227,7 +227,18 @@ var qpipes: Array = []
 const VEH_THEME := {2: "skate", 5: "hover", 8: "moto"}
 
 
+## Rows are built batched: each obstacle becomes one mesh (moving parts such
+## as drone rotors and pickups stay separate).
 func _spawn_row(z: float, gap: float) -> float:
+	var was := batching
+	batching = true
+	var r := _spawn_row_inner(z, gap)
+	batching = was
+	flush_batches()
+	return r
+
+
+func _spawn_row_inner(z: float, gap: float) -> float:
 	if not spawn_rows:
 		return 0.0
 	rows_spawned += 1
@@ -282,6 +293,8 @@ func _spawn_row(z: float, gap: float) -> float:
 		safe_type = "jump"
 	elif r0 < 0.46:
 		safe_type = "slide"
+	elif r0 < 0.55 and rows_spawned > 5 and theme != 0 and theme != 5:
+		safe_type = "busramp"
 
 	var types: Array[String] = ["", "", ""]
 	var empty_p := 0.35 - difficulty * 0.2
@@ -304,7 +317,7 @@ func _spawn_row(z: float, gap: float) -> float:
 			elif r < 0.3:
 				t = "slide"
 			elif r < 0.52:
-				t = "car"
+				t = "bus" if rows_spawned > 5 and randf() < 0.4 else "car"
 			elif r < 0.7:
 				t = "speaker"
 			elif r < 0.86:
@@ -323,10 +336,12 @@ func _spawn_row(z: float, gap: float) -> float:
 			"car":
 				_spawn_car(lane, z)
 				# gold on the roof: jump up and run over the traffic
-				if randf() < 0.5:
+				if randf() < 0.3:
 					for k in 3:
 						_coin(lane, z + 1.4 - k * 1.4, 2.35)
 			"speaker": _spawn_speaker(lane, z)
+			"bus": _spawn_bus(lane, z, randf() < 0.45, false)
+			"busramp": _spawn_bus(lane, z - 3.0, false, true)
 			"crate": _spawn_crate(lane, z)
 			"drone":
 				_spawn_drone(lane, z)
@@ -337,15 +352,15 @@ func _spawn_row(z: float, gap: float) -> float:
 			_:
 				if lane != new_safe and lane != tunnel_lane and randf() < 0.08:
 					_spawn_pad(lane, z)
-		if types[i] == "jump" and lane != new_safe and randf() < 0.5:
+		if types[i] == "jump" and lane != new_safe and randf() < 0.3:
 			_coin_arc(lane, z, 1.6)
-		elif types[i] == "" and lane != new_safe and lane != tunnel_lane and randf() < 0.55:
+		elif types[i] == "" and lane != new_safe and lane != tunnel_lane and randf() < 0.25:
 			# an extra gold line through an empty lane
 			_coin_line(lane, z + 6.0, z - 6.0)
 	_guide(from_lane, new_safe, z, safe_type)
 
 	# extra gold in the open stretch after this row (endless-runner style)
-	if randf() < 0.6:
+	if randf() < 0.3:
 		var cl := randi() % 3 - 1
 		if cl == new_safe:
 			cl = clampi(cl + (1 if randf() < 0.5 else -1), -1, 1)
@@ -401,7 +416,7 @@ func _coin_line(lane: int, z0: float, z1: float) -> void:
 	var cz := z0
 	while cz > z1:
 		_coin(lane, cz, 1.0)
-		cz -= 2.2
+		cz -= 3.0
 
 
 ## Coin trail: from the previous row (prev_row_z, prev_safe lane) to this row z,
@@ -416,7 +431,7 @@ func _guide(from_lane: int, to_lane: int, z: float, kind: String) -> void:
 		var x := lerpf(from_lane, to_lane, smoothstep(0.25, 0.75, t)) * LANE_WIDTH
 		var c := _coin(0, cz, 1.0)
 		c.position.x = x
-		cz -= 2.4
+		cz -= 3.2
 	var lx := to_lane * LANE_WIDTH
 	match kind:
 		"jump":
@@ -435,6 +450,8 @@ func _guide(from_lane: int, to_lane: int, z: float, kind: String) -> void:
 			for k in 7:
 				var tt := float(k) / 6.0
 				_coin(to_lane, z - 1.0 - tt * 14.0, 1.2 + sin(tt * PI) * 4.5)
+		"busramp":
+			pass
 		"hole", "portal":
 			for k in 3:
 				_coin(to_lane, z + 2.0 - k * 2.0, 1.0)
@@ -534,6 +551,11 @@ func _spawn_amp(lane: int, z: float) -> void:
 		_stripes(n, Vector3(2.22, 0.26, 0.52), Vector3(0, 0.62, 0), 7)
 		for x in [-0.8, 0.8]:
 			_box(n, Vector3(0.14, 0.14, 0.14), Vector3(x, 0.84, 0), mat(Color(1, 0.3, 0.15), Color(1, 0.2, 0.05), 5.0, 0.4, 0, 0, 2.0), false)
+		for x in [-0.95, 0.95]:
+			_box(n, Vector3(0.2, 0.08, 0.9), Vector3(x, 0.04, 0), hz(Color(0.15, 0.15, 0.18)))
+		for x in [-0.55, 0.0, 0.55]:
+			_cyl(n, 0.09, 0.03, Vector3(x, 0.26, 0.26), mat(Color(1, 0.5, 0.1), Color(1, 0.4, 0.05), 2.5), Vector3(PI / 2, 0, 0), false)
+			_cyl(n, 0.025, 0.03, Vector3(x + 0.2, 0.26, 0.26), mat(Color(0.7, 0.7, 0.75), Color.BLACK, 0, 0.2, 0.9), Vector3(PI / 2, 0, 0), false)
 	_danger_line(n, 0.25)
 
 
@@ -552,6 +574,14 @@ func _spawn_laser(lane: int, z: float) -> void:
 	_box(n, Vector3(2.1, 0.8, 0.02), Vector3(0, 1.75, 0), mat(Color(0.5, 0.02, 0.05), Color(1, 0.1, 0.1), 0.8), false)
 	_box(n, Vector3(0.3, 1.0, 0.3), Vector3(-1.15, 1.8, 0), mat(Color(0.2, 0.15, 0.3), Color(1, 0.2, 0.2), 2.0))
 	_box(n, Vector3(0.3, 1.0, 0.3), Vector3(1.15, 1.8, 0), mat(Color(0.2, 0.15, 0.3), Color(1, 0.2, 0.2), 2.0))
+	# emitter heads for each beam + warning beacons + base plates
+	for y in [1.4, 1.75, 2.1]:
+		for sd in [-1.0, 1.0]:
+			_cyl(n, 0.07, 0.12, Vector3(sd * 1.02, y, 0), mat(Color(0.8, 0.8, 0.85), Color.BLACK, 0, 0.2, 0.9), Vector3(0, 0, PI / 2), false)
+	for sd in [-1.0, 1.0]:
+		_box(n, Vector3(0.5, 0.08, 0.5), Vector3(sd * 1.15, 0.04, 0), hz(Color(0.2, 0.2, 0.24)))
+		_sphere(n, 0.13, Vector3(sd * 1.15, 2.98, 0), mat(Color(1, 0.2, 0.1), Color(1, 0.15, 0.05), 6.0, 0.3, 0, 0, 3.0), false)
+		_cyl(n, 0.035, 2.4, Vector3(sd * 1.28, 1.3, -0.08), mat(Color(0.1, 0.1, 0.12)), Vector3.ZERO, false)
 	# "slide" chevrons pointing down on both posts
 	var ch := mat(Color.WHITE, Color(1, 0.9, 0.3), 2.5)
 	for sd in [-1.15, 1.15]:
@@ -581,10 +611,88 @@ func _spawn_car(lane: int, z: float) -> void:
 	_box(n, Vector3(0.5, 0.14, 0.05), Vector3(-0.6, 0.7, -2.21), tail)
 	_box(n, Vector3(0.5, 0.14, 0.05), Vector3(0.6, 0.7, -2.21), tail)
 	var wheel := mat(Color(0.06, 0.05, 0.08))
+	var chrome := mat(Color(0.85, 0.86, 0.9), Color.BLACK, 0.0, 0.15, 0.95, 0.5)
 	for wx in [-0.95, 0.95]:
 		for wz in [-1.4, 1.4]:
 			_cyl(n, 0.36, 0.3, Vector3(wx, 0.36, wz), wheel, Vector3(0, 0, PI / 2))
+			_cyl(n, 0.2, 0.32, Vector3(wx, 0.36, wz), chrome, Vector3(0, 0, PI / 2), false)
+	var glass := mat(Color(0.12, 0.16, 0.25), Color(0.3, 0.4, 0.6), 0.2, 0.05, 0.8, 0.6)
+	for sd in [-1.0, 1.0]:
+		_box(n, Vector3(0.03, 0.4, 0.9), Vector3(sd * 0.84, 1.22, -0.35), glass, false)
+		_box(n, Vector3(0.03, 0.4, 0.8), Vector3(sd * 0.84, 1.22, 0.75), glass, false)
+		_box(n, Vector3(0.18, 0.12, 0.08), Vector3(sd * 1.02, 1.0, 1.1), body, false)
+	_box(n, Vector3(1.5, 0.04, 0.02), Vector3(0, 0.95, 1.36), glass, false)
+	_box(n, Vector3(1.5, 0.5, 0.03), Vector3(0, 1.2, 1.37), glass, false)
+	_box(n, Vector3(1.0, 0.22, 0.04), Vector3(0, 0.45, 2.22), mat(Color(0.1, 0.1, 0.12)), false)
+	for k in 4:
+		_box(n, Vector3(0.9, 0.02, 0.05), Vector3(0, 0.38 + k * 0.05, 2.24), chrome, false)
+	for zz in [2.24, -2.24]:
+		_box(n, Vector3(2.0, 0.18, 0.12), Vector3(0, 0.3, zz), chrome, false)
+		_box(n, Vector3(0.45, 0.14, 0.02), Vector3(0, 0.46, zz + signf(zz) * 0.07), mat(Color(0.95, 0.95, 0.9)), false)
 	_danger_line(n, 2.2)
+
+
+## City bus (like the trains in modern runners): parked, or oncoming
+## (meta "move"). A parked bus in the safe lane gets a ramp to run up onto it.
+func _spawn_bus(lane: int, z: float, moving: bool, ramp: bool) -> void:
+	var n := _obj("bus", lane, z - 5.5, 6.0)
+	n.set_meta("box", AABB(Vector3(-1.15, 0.0, -5.5), Vector3(2.3, 3.1, 11.0)))
+	n.set_meta("move", randf_range(7.0, 10.0) if moving else 0.0)
+	var livery: Array = {8: [Color(0.95, 0.75, 0.1), Color(0.15, 0.15, 0.15)], 1: [Color(0.85, 0.15, 0.15), Color(0.98, 0.95, 0.9)],
+		3: [Color(0.25, 0.3, 0.45), Color(0.9, 0.2, 0.7)], 7: [Color(0.95, 0.45, 0.65), Color(0.98, 0.95, 0.9)]}.get(theme,
+		[[Color(0.15, 0.45, 0.85), Color(0.95, 0.95, 0.97)], [Color(0.1, 0.6, 0.45), Color(0.95, 0.95, 0.97)], [Color(0.9, 0.3, 0.15), Color(0.95, 0.95, 0.97)]][randi() % 3])
+	var body := hz(livery[1], Color.BLACK, 0.0, 0.35, 0.3)
+	var paint := hz(livery[0], Color.BLACK, 0.0, 0.35, 0.3)
+	var glass := mat(Color(0.1, 0.14, 0.22), Color(0.25, 0.35, 0.55), 0.25, 0.05, 0.8, 0.8, 0.0, HAZ_RIM)
+	var dark := mat(Color(0.08, 0.08, 0.1))
+	var chrome := mat(Color(0.85, 0.86, 0.9), Color.BLACK, 0.0, 0.15, 0.95, 0.5)
+	_box(n, Vector3(2.3, 2.55, 11.0), Vector3(0, 1.6, 0), body)
+	_box(n, Vector3(2.32, 0.7, 11.02), Vector3(0, 0.62, 0), paint)
+	_box(n, Vector3(2.2, 0.12, 10.8), Vector3(0, 2.94, 0), paint)
+	_box(n, Vector3(1.4, 0.35, 2.6), Vector3(0, 3.1, -1.5), mat(Color(0.85, 0.86, 0.9), Color.BLACK, 0, 0.3, 0.5))
+	for sd in [-1.0, 1.0]:
+		_box(n, Vector3(0.03, 0.95, 9.4), Vector3(sd * 1.16, 2.05, -0.5), glass, false)
+		for k in 7:
+			_box(n, Vector3(0.05, 1.0, 0.1), Vector3(sd * 1.17, 2.05, -5.0 + k * 1.45), dark, false)
+		_box(n, Vector3(0.05, 0.12, 10.9), Vector3(sd * 1.17, 1.12, 0), chrome, false)
+		_box(n, Vector3(0.2, 0.3, 0.08), Vector3(sd * 1.3, 2.2, 5.3), dark, false)
+	_box(n, Vector3(0.03, 2.1, 1.1), Vector3(1.17, 1.3, 3.8), glass, false)
+	_box(n, Vector3(2.1, 1.2, 0.03), Vector3(0, 2.0, 5.51), glass, false)
+	_box(n, Vector3(1.8, 0.35, 0.05), Vector3(0, 2.78, 5.52), dark, false)
+	_box(n, Vector3(1.6, 0.25, 0.02), Vector3(0, 2.78, 5.55), mat(Color(1.0, 0.6, 0.1), Color(1.0, 0.55, 0.05), 3.0), false)
+	for sd in [-0.8, 0.8]:
+		_box(n, Vector3(0.35, 0.2, 0.04), Vector3(sd, 0.85, 5.52), mat(Color(1, 1, 0.9), Color(1, 0.95, 0.8), 5.0), false)
+		_box(n, Vector3(0.3, 0.25, 0.04), Vector3(sd, 0.95, -5.52), mat(Color(1, 0.1, 0.1), Color(1, 0.05, 0.05), 5.0), false)
+	_box(n, Vector3(2.35, 0.25, 0.2), Vector3(0, 0.35, 5.55), chrome, false)
+	for wz in [-3.8, -2.7, 3.6]:
+		for wx in [-1.1, 1.1]:
+			_cyl(n, 0.48, 0.3, Vector3(wx, 0.48, wz), dark, Vector3(0, 0, PI / 2))
+			_cyl(n, 0.25, 0.32, Vector3(wx, 0.48, wz), chrome, Vector3(0, 0, PI / 2), false)
+	var was := batching
+	batching = false
+	themes.text(n, pick_route(), Vector3(0, 2.78, 5.58), 0.01, Color(1.0, 0.7, 0.15), 2.5)
+	batching = was
+	# gold on the roof (parked buses only)
+	for k in (0 if moving else 5):
+		_coin(0, n.position.z + 4.0 - k * 2.0, 3.6).position.x = n.position.x
+	_danger_line(n, 5.5)
+	if ramp:
+		var r := _obj("ramp", lane, z + 3.0, 3.2)
+		r.set_meta("box", AABB(Vector3(-1.1, 0.0, -3.0), Vector3(2.2, 3.1, 6.0)))
+		var rm := mat(Color(0.75, 0.72, 0.7), Color.BLACK, 0.0, 0.7, 0.2)
+		var slab := _box(r, Vector3(2.2, 0.2, 6.8), Vector3(0, 1.55, 0), rm)
+		slab.rotation.x = atan2(3.1, 6.0)
+		for sd in [-1.0, 1.0]:
+			_box(r, Vector3(0.1, 0.6, 6.8), Vector3(sd * 1.1, 1.8, 0), mat(Color(1, 0.8, 0.1), Color(1, 0.7, 0.05), 1.5), false).rotation.x = atan2(3.1, 6.0)
+		for k in 4:
+			_box(r, Vector3(0.12, 3.1 * (k + 1) / 5.0, 0.12), Vector3(0, 3.1 * (k + 1) / 10.0, 2.4 - k * 1.3), mat(Color(0.3, 0.3, 0.34)), false)
+		for k in 4:
+			var lz := 2.4 - k * 1.5
+			_coin(0, r.position.z + lz, 3.1 * (3.0 - lz) / 6.0 + 1.0).position.x = r.position.x
+
+
+func pick_route() -> String:
+	return ["24 DOWNTOWN", "7 SKYPORT", "12 HARBOR", "88 EXPRESS", "3 MARKET", "42 NEO CITY"][randi() % 6]
 
 
 func _spawn_speaker(lane: int, z: float) -> void:
@@ -610,6 +718,13 @@ func _spawn_speaker(lane: int, z: float) -> void:
 	_stripes(n, Vector3(2.26, 0.3, 2.26), Vector3(0, 0.2, 0), 8)
 	_woofer(n, Vector3(0, 2.45, 1.11), 0.62, Vector3(PI / 2, 0, 0), Color(1, 0.3, 0.2))
 	_woofer(n, Vector3(0, 1.25, 1.11), 0.6, Vector3(PI / 2, 0, 0), Color(1, 0.55, 0.1))
+	var metal := mat(Color(0.7, 0.72, 0.78), Color.BLACK, 0, 0.3, 0.8)
+	for cx in [-1.1, 1.1]:
+		for cy in [0.1, 3.3]:
+			_box(n, Vector3(0.14, 0.14, 2.26), Vector3(cx, cy, 0), metal, false)
+		_box(n, Vector3(0.06, 0.12, 0.5), Vector3(cx * 1.03, 2.9, 0), metal, false)
+	for k in 5:
+		_box(n, Vector3(1.9, 0.03, 0.03), Vector3(0, 0.55 + k * 0.6, 1.13), mat(Color(0.1, 0.1, 0.12)), false)
 	_danger_line(n, 1.1)
 
 
@@ -923,6 +1038,15 @@ func _spawn_crate(lane: int, z: float) -> void:
 	_box(n, Vector3(1.6, 1.15, 1.6), Vector3(0.1, 1.73, 0.05), body)
 	for y in [0.02, 1.15, 2.3]:
 		_box(n, Vector3(1.95 if y < 2.0 else 1.65, 0.08, 1.95 if y < 2.0 else 1.65), Vector3(0, y, 0), edge, false)
+	# planks + metal corners
+	var plank := mat(Color(0.7, 0.36, 0.1), Color.BLACK, 0.0, 0.8)
+	for k in 3:
+		_box(n, Vector3(1.92, 0.05, 0.05), Vector3(0, 0.25 + k * 0.33, 0.96), plank, false)
+		_box(n, Vector3(0.05, 0.05, 1.92), Vector3(0.96, 0.25 + k * 0.33, 0), plank, false)
+	var corner := mat(Color(0.3, 0.3, 0.34), Color.BLACK, 0, 0.3, 0.8)
+	for cx in [-0.95, 0.95]:
+		for cz in [-0.95, 0.95]:
+			_box(n, Vector3(0.12, 1.2, 0.12), Vector3(cx, 0.58, cz), corner, false)
 	# "breakable" crack mark
 	var mk := mat(Color.WHITE, Color(1, 0.95, 0.8), 2.0)
 	var m1 := _box(n, Vector3(0.9, 0.1, 0.02), Vector3(0, 0.58, 0.96), mk, false)
@@ -944,9 +1068,20 @@ func _spawn_drone(lane: int, z: float) -> void:
 	_sphere(n, 0.24, Vector3(0, 1.8, 0.45), mat(Color(1, 0.2, 0.2), Color(1, 0.1, 0.1), 7.0, 0.3, 0.0, 0.0, 1.5))
 	var ring := _torus(n, 0.85, 0.95, Vector3(0, 1.8, 0), mat(Color(1, 0.8, 0.1), Color(1, 0.6, 0.05), 3.0))
 	spinners.append([ring, Vector3(0, 1, 0), 6.0])
+	var was := batching
+	batching = false
 	for x in [-0.75, 0.75]:
 		var rotor := _cyl(n, 0.35, 0.04, Vector3(x, 2.25, 0), mat(Color(1, 1, 1), Color(1, 0.3, 0.2), 2.0), Vector3.ZERO, false)
 		spinners.append([rotor, Vector3(0, 1, 0), 25.0])
+	batching = was
+	# arms, camera eye, antenna, LED strip
+	for x in [-0.75, 0.75]:
+		_box(n, Vector3(0.6, 0.06, 0.1), Vector3(x * 0.55, 2.05, 0), hz(Color(0.2, 0.2, 0.24)), false)
+		_cyl(n, 0.05, 0.25, Vector3(x, 2.12, 0), hz(Color(0.25, 0.25, 0.3)), Vector3.ZERO, false)
+	_cyl(n, 0.12, 0.12, Vector3(0, 1.55, 0.38), mat(Color(0.05, 0.05, 0.08), Color.BLACK, 0.0, 0.1, 0.8), Vector3(PI / 2, 0, 0), false)
+	_cyl(n, 0.015, 0.4, Vector3(0.2, 2.2, -0.2), hz(Color(0.3, 0.3, 0.35)), Vector3.ZERO, false)
+	_sphere(n, 0.05, Vector3(0.2, 2.42, -0.2), mat(Color(1, 0.2, 0.1), Color(1, 0.2, 0.1), 5.0, 0.3, 0, 0, 2.0), false)
+	_box(n, Vector3(0.9, 0.04, 0.02), Vector3(0, 1.72, 0.49), mat(Color(1, 0.3, 0.2), Color(1, 0.2, 0.1), 4.0, 0.4, 0, 0, 1.5), false)
 	_beam(n, Vector3(0, 0.0, 0), 0.7, 1.8, Color(1, 0.15, 0.1), 0.5)
 	# red scan spot on the road under it
 	_cyl(n, 0.8, 0.02, Vector3(0, 0.03, 0), mat(Color(0.4, 0.02, 0.02), Color(1, 0.1, 0.05), 2.5, 0.5, 0, 0, 2.0), Vector3.ZERO, false)
@@ -1381,7 +1516,8 @@ func mat(albedo: Color, emission := Color(0, 0, 0), energy := 0.0, rough := 0.7,
 	var glow := energy > 0.45 and emission.get_luminance() > 0.02
 	var vcol := (emission if glow else albedo).srgb_to_linear()
 	vcol.a = clampf(energy / 8.0, 0.0, 1.0) if glow else 0.0
-	m.set_meta("vc", [vcol, rough, metal, pulse])
+	var red_rim := rim_col.r > 0.9 and rim_col.g < 0.4
+	m.set_meta("vc", [vcol, rough, metal, pulse, -rim if red_rim else minf(rim, 0.4)])
 	_mats[key] = m
 	return m
 
@@ -1442,16 +1578,59 @@ func _mesh(key: String) -> Mesh:
 			bm.cap_bottom = false
 			m = bm
 		"coin":
-			var cn := CylinderMesh.new()
-			cn.top_radius = 0.42
-			cn.bottom_radius = 0.42
-			cn.height = 0.1
-			cn.radial_segments = 20
-			m = cn
+			m = _coin_mesh()
 	_meshes[key] = m
 	if key in BATCH_KEYS:
 		_prim_key[m] = key
 	return m
+
+
+## Coin: a small disc with a raised rim and an embossed star on both faces
+## (built in the XZ plane; the coin node turns it upright).
+func _coin_mesh() -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var r := 0.3
+	var seg := 28
+	var tris: Array = []
+	for i in seg:
+		var a0 := TAU * i / seg
+		var a1 := TAU * (i + 1) / seg
+		var p0 := Vector3(cos(a0), 0, sin(a0))
+		var p1 := Vector3(cos(a1), 0, sin(a1))
+		for sy in [1.0, -1.0]:
+			var yi := Vector3(0, 0.028 * sy, 0)
+			var yr := Vector3(0, 0.045 * sy, 0)
+			var inner0 := p0 * r * 0.8
+			var inner1 := p1 * r * 0.8
+			var quads := [[Vector3.ZERO + yi, inner1 + yi, inner0 + yi],
+				[inner0 + yi, inner1 + yi, inner1 + yr], [inner0 + yi, inner1 + yr, inner0 + yr],
+				[inner0 + yr, inner1 + yr, p1 * r + yr], [inner0 + yr, p1 * r + yr, p0 * r + yr]]
+			for q in quads:
+				tris.append(q if sy > 0 else [q[0], q[2], q[1]])
+		tris.append([p0 * r + Vector3(0, 0.045, 0), p1 * r + Vector3(0, 0.045, 0), p1 * r + Vector3(0, -0.045, 0)])
+		tris.append([p0 * r + Vector3(0, 0.045, 0), p1 * r + Vector3(0, -0.045, 0), p0 * r + Vector3(0, -0.045, 0)])
+	# embossed five-point star on both faces
+	var pts := []
+	for k in 10:
+		var a := -PI / 2 + TAU * k / 10.0
+		var rr := r * (0.55 if k % 2 == 0 else 0.23)
+		pts.append(Vector3(cos(a) * rr, 0, sin(a) * rr))
+	for sy in [1.0, -1.0]:
+		var yb := Vector3(0, 0.028 * sy, 0)
+		var yt := Vector3(0, 0.05 * sy, 0)
+		for k in 10:
+			var a: Vector3 = pts[k]
+			var b: Vector3 = pts[(k + 1) % 10]
+			var qs := [[yt, b + yt, a + yt], [a + yb, a + yt, b + yt], [a + yb, b + yt, b + yb]]
+			for q in qs:
+				tris.append(q if sy > 0 else [q[0], q[2], q[1]])
+	for t in tris:
+		var nrm: Vector3 = (t[1] - t[0]).cross(t[2] - t[0]).normalized()
+		for v in t:
+			st.set_normal(nrm)
+			st.add_vertex(v)
+	return st.commit()
 
 
 func _mi(parent: Node3D, mesh: Mesh, pos: Vector3, m: Material, shadow := true) -> MeshInstance3D:
@@ -1520,7 +1699,7 @@ func flush_batches() -> void:
 		var nb := t.basis.inverse().transposed()
 		var vc: Array = (e[2] as Material).get_meta("vc")
 		var col: Color = vc[0]
-		var uv := Vector2(vc[3], 0.0)
+		var uv := Vector2(vc[3], vc[4])
 		var uv2 := Vector2(vc[1], vc[2])
 		var verts: PackedVector3Array = arr[0]
 		var norms: PackedVector3Array = arr[1]
