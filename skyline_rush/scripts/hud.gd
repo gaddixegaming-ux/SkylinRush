@@ -53,6 +53,7 @@ var power_rows := {}
 var veh_card: PanelContainer
 var veh_name: Label
 var veh_pips: Pips
+var veh_armor: Pips
 var popups: VBoxContainer
 var menu_best: Label
 var wallet_lbl: Label
@@ -79,6 +80,9 @@ var side_body: VBoxContainer
 var side_title: Label
 var side_wallet: Label
 var cur_panel := ""
+var upg_card: PanelContainer
+var upg_list: VBoxContainer
+var nav: HBoxContainer
 
 var _flash := 0.0
 var _flash_color := Color.WHITE
@@ -193,10 +197,10 @@ class Ring extends Control:
 				draw_line(c + Vector2(0.55 * s, 0), c + Vector2(0.55 * s, -0.6 * s), col, 4.0)
 			"shield":
 				draw_colored_polygon(PackedVector2Array([c + Vector2(-0.6 * s, -0.6 * s), c + Vector2(0.6 * s, -0.6 * s), c + Vector2(0.5 * s, 0.2 * s), c + Vector2(0, 0.75 * s), c + Vector2(-0.5 * s, 0.2 * s)]), col)
-			"slowmo":
-				draw_arc(c, 0.7 * s, 0, TAU, 24, col, 3.0, true)
-				draw_line(c, c + Vector2(0, -0.5 * s), col, 3.0)
-				draw_line(c, c + Vector2(0.35 * s, 0.1 * s), col, 3.0)
+			"springs":
+				for k in 3:
+					draw_arc(c + Vector2(0, (0.45 - k * 0.3) * s), 0.35 * s, 0, TAU, 14, col, 2.5, true)
+				draw_rect(Rect2(c + Vector2(-0.55 * s, -0.75 * s), Vector2(1.1 * s, 0.35 * s)), col)
 			"double":
 				draw_colored_polygon(PackedVector2Array([c + Vector2(0, -0.8 * s), c + Vector2(0.6 * s, 0), c + Vector2(0, 0.8 * s), c + Vector2(-0.6 * s, 0)]), col)
 
@@ -456,7 +460,7 @@ func _build_hud() -> void:
 	power_box.add_theme_constant_override("separation", 8)
 	power_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	right.add_child(power_box)
-	for id in ["magnet", "shield", "slowmo", "double"]:
+	for id in ["magnet", "shield", "springs", "double"]:
 		var pc := _card(Color.WHITE, Color(0.06, 0.045, 0.12, 0.7))
 		pc.custom_minimum_size = Vector2(250, 0)
 		var ph := HBoxContainer.new()
@@ -518,8 +522,17 @@ func _build_hud() -> void:
 	veh_name = _label("SKATEBOARD", 22, Color.WHITE)
 	vv.add_child(veh_name)
 	veh_pips = Pips.new()
-	veh_pips.custom_minimum_size = Vector2(240, 14)
+	veh_pips.custom_minimum_size = Vector2(260, 12)
 	vv.add_child(veh_pips)
+	var ar := HBoxContainer.new()
+	ar.add_theme_constant_override("separation", 10)
+	vv.add_child(ar)
+	ar.add_child(_label("ARMOR", 13, TEXT_DIM))
+	veh_armor = Pips.new()
+	veh_armor.custom_minimum_size = Vector2(120, 10)
+	veh_armor.col = Color(0.4, 0.9, 1.0)
+	veh_armor.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	ar.add_child(veh_armor)
 	veh_card.visible = false
 
 	popups = VBoxContainer.new()
@@ -688,24 +701,24 @@ func _build_menu() -> void:
 	var play := _button("▶   PLAY                       SPACE", PINK, 470, 76, 32)
 	play.pressed.connect(func(): play_pressed.emit())
 	menu_col.add_child(play)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	menu_col.add_child(row)
-	var gar := _button("GARAGE   G", Color(1.0, 0.6, 0.3), 230, 56, 22)
-	gar.pressed.connect(func(): panel_requested.emit("garage"))
-	row.add_child(gar)
-	var upg := _button("UPGRADES   U", GOLD, 230, 56, 22)
-	upg.pressed.connect(func(): panel_requested.emit("upgrades"))
-	row.add_child(upg)
-	var row2 := HBoxContainer.new()
-	row2.add_theme_constant_override("separation", 10)
-	menu_col.add_child(row2)
-	var ctl := _button("CONTROLS   TAB", CYAN, 230, 56, 22)
-	ctl.pressed.connect(toggle_controls)
-	row2.add_child(ctl)
-	var quit := _button("QUIT", Color(0.6, 0.5, 0.9), 230, 56, 22)
-	quit.pressed.connect(func(): quit_pressed.emit())
-	row2.add_child(quit)
+	# top navigation bar
+	nav = HBoxContainer.new()
+	nav.offset_left = 96
+	nav.offset_top = 30
+	nav.add_theme_constant_override("separation", 8)
+	menu.add_child(nav)
+	for it in [["GARAGE", "G", Color(1.0, 0.6, 0.3), "garage"], ["UPGRADES", "U", GOLD, "upgrades"], ["CONTROLS", "TAB", CYAN, "controls"], ["QUIT", "", Color(0.6, 0.5, 0.9), "quit"]]:
+		var nb := _button(it[0] + (("   " + it[1]) if it[1] != "" else ""), it[2], 150, 46, 18)
+		nb.alignment = HORIZONTAL_ALIGNMENT_CENTER
+		var id: String = it[3]
+		nb.pressed.connect(func():
+			if id == "controls":
+				toggle_controls()
+			elif id == "quit":
+				quit_pressed.emit()
+			else:
+				panel_requested.emit(id))
+		nav.add_child(nb)
 	menu_col.add_child(_gap(8))
 	# track picker
 	var tp := _card(CYAN)
@@ -756,6 +769,36 @@ func _build_menu() -> void:
 	var cnext := _button(">", PINK, 54, 54, 26)
 	cnext.pressed.connect(func(): char_changed.emit(1))
 	ch.add_child(cnext)
+
+	# upgrade summary card (bottom right): every upgradable part at a glance
+	upg_card = _card(GOLD, Color(0.05, 0.035, 0.11, 0.88))
+	upg_card.anchor_left = 1.0
+	upg_card.anchor_right = 1.0
+	upg_card.anchor_top = 1.0
+	upg_card.anchor_bottom = 1.0
+	upg_card.offset_right = -40
+	upg_card.offset_left = -40
+	upg_card.offset_bottom = -36
+	upg_card.offset_top = -36
+	upg_card.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	upg_card.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	upg_card.custom_minimum_size = Vector2(380, 0)
+	menu.add_child(upg_card)
+	var uv := VBoxContainer.new()
+	uv.add_theme_constant_override("separation", 6)
+	upg_card.add_child(uv)
+	var uh := HBoxContainer.new()
+	uv.add_child(uh)
+	var ut := _label("YOUR UPGRADES", 20, GOLD)
+	ut.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	uh.add_child(ut)
+	var ub := _button("SHOP   U", GOLD, 110, 36, 15)
+	ub.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ub.pressed.connect(func(): panel_requested.emit("upgrades"))
+	uh.add_child(ub)
+	upg_list = VBoxContainer.new()
+	upg_list.add_theme_constant_override("separation", 4)
+	uv.add_child(upg_list)
 
 	_build_side_panel()
 	_build_controls()
@@ -833,11 +876,11 @@ func _build_controls() -> void:
 	pg.add_theme_constant_override("v_separation", 6)
 	cv.add_child(pg)
 	for r in [["MAGNET", "pulls coins to you", Color(1.0, 0.4, 0.45)], ["SHIELD", "smash through anything", CYAN],
-			["SLOW-MO", "the world slows down", Color(0.65, 0.6, 1.0)], ["2X", "double score + coins", GOLD]]:
+			["SPRINGS", "super-high jumps", Color(0.4, 1.0, 0.55)], ["2X", "double score + coins", GOLD]]:
 		pg.add_child(_chip(r[0], r[2]))
 		pg.add_child(_label(r[1], 18, Color.WHITE, 0, font_reg))
 	cv.add_child(_gap(4))
-	cv.add_child(_label("Your garage vehicle is equipped automatically in its map:\nskateboard - SKATE PARK  ·  hover - HOVER HARBOR  ·  moto - TURBO HIGHWAY\nESC pause  ·  M music  ·  F11 fullscreen  ·  gamepad supported", 16, TEXT_DIM, 0, font_reg))
+	cv.add_child(_label("Your garage ride is handed to you when you enter its map, for RIDE TIME seconds (ride tokens refill it):\nskateboard - SKATE PARK  ·  hover - HOVER HARBOR  ·  moto - TURBO HIGHWAY\nESC pause  ·  M music  ·  F11 fullscreen  ·  gamepad supported", 16, TEXT_DIM, 0, font_reg))
 
 
 func _center_panel(border: Color) -> VBoxContainer:
@@ -950,6 +993,27 @@ func show_menu(best: int, wallet: int) -> void:
 	create_tween().tween_property(menu, "modulate:a", 1.0, 0.5)
 
 
+func set_upgrade_summary(d: Dictionary) -> void:
+	for c in upg_list.get_children():
+		c.queue_free()
+	for r in d["rows"]:
+		var hb := HBoxContainer.new()
+		hb.add_theme_constant_override("separation", 10)
+		upg_list.add_child(hb)
+		var nm := _label(String(r["name"]).split("  ")[0], 14, Color.WHITE, 0, font_reg)
+		nm.custom_minimum_size = Vector2(150, 0)
+		hb.add_child(nm)
+		var pp := Pips.new()
+		pp.count = r["max"]
+		pp.filled = r["level"]
+		pp.col = r["color"]
+		pp.custom_minimum_size = Vector2(130, 9)
+		pp.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		hb.add_child(pp)
+		var val := _label("%s%s" % [_num(r["now"]), r["unit"]], 14, TEXT_DIM, 0, font_reg)
+		hb.add_child(val)
+
+
 func set_wallet(n: int) -> void:
 	wallet_lbl.text = _fmt(n)
 	side_wallet.text = "●  " + _fmt(n)
@@ -957,6 +1021,7 @@ func set_wallet(n: int) -> void:
 
 func toggle_controls() -> void:
 	controls_panel.visible = not controls_panel.visible
+	upg_card.visible = not controls_panel.visible and cur_panel == ""
 
 
 ## Garage / upgrades overlay on the left (the lobby character stays visible).
@@ -964,6 +1029,8 @@ func show_panel(p: String, data: Dictionary) -> void:
 	cur_panel = p
 	side_panel.visible = p != ""
 	menu_col.visible = p == ""
+	nav.visible = p == ""
+	upg_card.visible = p == ""
 	if p != "":
 		controls_panel.visible = false
 	for c in side_body.get_children():
@@ -991,7 +1058,7 @@ func _fill_garage(d: Dictionary) -> void:
 			b.add_theme_color_override("font_color", INK)
 		b.pressed.connect(func(): garage_tab.emit(t))
 		tabs.add_child(b)
-	side_body.add_child(_label("Auto-equipped in  %s   ·   A / D switch type   ·   click to buy / equip" % d["zones"][d["type"]], 16, TEXT_DIM, 0, font_reg))
+	side_body.add_child(_label("Your ride in  %s   ·   A / D switch type   ·   click to buy / equip" % d["zones"][d["type"]], 16, TEXT_DIM, 0, font_reg))
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 10)
@@ -1201,14 +1268,13 @@ func update_hud(d: Dictionary) -> void:
 	var veh = d["vehicle"]
 	veh_card.visible = veh != null
 	if veh != null:
-		veh_name.text = veh["name"]
-		if veh["respawn"] > 0.0:
-			veh_pips.progress = 1.0 - veh["respawn"] / 5.0
-		else:
-			veh_pips.progress = -1.0
-			veh_pips.count = maxi(1, veh["max"])
-			veh_pips.filled = veh["hits"]
+		veh_name.text = "%s     %ds" % [veh["name"], ceili(veh["time"])]
+		veh_pips.progress = clampf(veh["time"] / maxf(veh["time_max"], 1.0), 0.0, 1.0)
+		veh_pips.col = Color(1.0, 0.3, 0.3) if veh["time"] < 5.0 else Color(1.0, 0.6, 0.3)
 		veh_pips.queue_redraw()
+		veh_armor.count = maxi(1, veh["max"])
+		veh_armor.filled = veh["hits"]
+		veh_armor.queue_redraw()
 
 
 func slot_used(i: int) -> void:

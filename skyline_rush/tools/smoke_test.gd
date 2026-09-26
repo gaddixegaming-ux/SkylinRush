@@ -116,7 +116,7 @@ func _test_hole() -> void:
 
 
 func _test_powers() -> void:
-	for p in ["magnet", "shield", "slowmo", "double"]:
+	for p in ["magnet", "shield", "springs", "double"]:
 		main.world._spawn_power(Vector3(main.player.position.x, 1.2, -3.0), p)
 		await _wait(0.25)
 	print("powers: ", main.pw)

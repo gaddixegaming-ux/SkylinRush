@@ -1,6 +1,33 @@
-# SKYLINE RUSH v6: endless runner with 9 tracks, 6 runners, 3 rideable vehicles (Godot 4.3+, PC)
+# SKYLINE RUSH v7: endless runner with 9 tracks, 6 runners, 3 rideable vehicles (Godot 4.3+, PC)
 
 Open Godot 4.3 or newer → Import → choose `project.godot` → press F5.
+
+## What's new in v7
+- **Detailed buildings:** every town building is now fully built:
+  - stone plinth, corner pilasters, floor bands, and a cornice with a parapet
+  - a shop floor with glass, mullions, a door and wall lamps, a striped awning with a valance, and an LED sign board
+  - framed windows with sills, lintels, crossbars, shutters and flower boxes
+  - balconies with railings and plants, windows on the end wall you see as you run in, and drain pipes
+  - rooftops with water tanks, AC units, antennas, stair huts or roof gardens
+- **Performance:** static scenery is merged into **one mesh per building or prop** (`world.gd` → `flush_batches`), which cuts draw calls by roughly 10–20×. There are also at most 10 real point lights, lighter rain, and no screen-space reflections.
+- **Look:** a soft cartoon-realistic light ramp on the world shaders (`shaders/toon_light.gdshaderinc`) and ACES tonemapping. The **fog is depth-based**, so it's clear up close and only fades the far distance (from 110 m).
+- **Camera:** a closer over-the-shoulder chase. It still rises with sky-highways and roofs.
+- **No slow motion:** hit-stops, close-call slow-mo and the death slow-mo are gone. The Slow-Mo power-up is replaced by **Spring Shoes** (much higher jumps).
+- **Crashes:** the runner bounces off the obstacle instead of clipping into it.
+- **Menu:** a new showroom stage (a podium with a neon ring, an LED wall, spotlights and a skyline) replaces the live track, so nothing overlaps. There's a top navigation bar and a **YOUR UPGRADES** card showing every upgradable part.
+- **Lobby animations:**
+  - HOOPS now has a real dribble, with the ball synced to his hand.
+  - ROCKY's bag hangs at fist height and swings when he punches it.
+  - ACE's ball flies off the tee on every drive.
+  - PIXEL's bean bag is fitted under her, so her legs no longer clip into it.
+- **Run animation synced** to the ground speed, using each runner's real stride.
+- **Animations:**
+  - Skateboard: push-kicks, carving into lane changes, a crouch and grab in the air, and landing crouches.
+  - Grapple: a swing pose with one arm on the rope.
+  - Moto and hover: pitch nose-up in the air, with the rider tilting along.
+- **Arcade skating:** every jump on the board is a named trick (Kickflip, Heelflip, 360 Shuv-It, Tre Flip, Varial, Impossible) with a **combo multiplier**. The board turns sideways for boardslides on rails.
+- **Timed rides:** entering a vehicle map hands you your ride for **RIDE TIME** seconds (a new upgrade, 20 → 52 s), or until it's wrecked. **Ride tokens** on the track refill it or put you back on.
+- **Warps:** you get a clear 140 m run-in after a warp. The warp tunnel is now narrow enough to stay inside its own lane.
 
 ## What's new in v6
 ### Controls: abilities on Q, E and double-tap SPACE

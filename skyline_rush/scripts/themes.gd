@@ -81,8 +81,16 @@ func cone(p: Node3D, r: float, h: float, pos: Vector3, m: Material, rot := Vecto
 	return mi
 
 
+## Real point lights are expensive: at most MAX_LIGHTS in the scenery at once
+## (the emissive glow still shows everywhere).
+const MAX_LIGHTS := 10
+
+
 func light(p: Node3D, pos: Vector3, c: Color, energy := 2.0, rng := 7.0) -> void:
+	if w.get_tree().get_nodes_in_group("scene_light").size() >= MAX_LIGHTS:
+		return
 	var l := OmniLight3D.new()
+	l.add_to_group("scene_light")
 	l.position = pos
 	l.light_color = c
 	l.light_energy = energy
@@ -257,84 +265,17 @@ func gate(z: float, t: int) -> void:
 
 # ---------------------------------------------------------------- buildings
 func _shophouse(z: float, s: float, o: Dictionary) -> float:
-	var wd := randf_range(5.5, 8.0)
-	var dp := randf_range(6.0, 9.0)
-	var floors := randi_range(o.get("fmin", 2), o.get("fmax", 4))
-	var fh := 3.2
-	var h := floors * fh
-	var n := node(Vector3(s * (7.8 + dp * 0.5), 0, z - wd * 0.5), wd)
-	var col: Color = pick(o["colors"])
-	var night: bool = o.get("night", false)
-	box(n, Vector3(dp, h, wd - 0.3), Vector3(0, h * 0.5, 0), M(col, Color.BLACK, 0.0, 0.8, 0.0, 0.2), true)
-	var fx := -s * (dp * 0.5 + 0.03)
-	var trim := M(col.darkened(0.3), Color.BLACK, 0.0, 0.7)
-	# shop front
-	var shop_c := Color(1.0, 0.75, 0.45) if night else Color(0.55, 0.7, 0.85)
-	box(n, Vector3(0.06, 2.0, wd * 0.7), Vector3(fx, 1.3, 0), w.mat(shop_c, shop_c, 1.6 if night else 0.25, 0.2, 0.3, 0.2))
-	box(n, Vector3(0.2, 0.3, wd - 0.2), Vector3(fx - s * 0.05, fh - 0.15, 0), trim)
-	if o.get("awning", true):
-		var ac: Color = pick(o.get("awnings", [Color(1, 0.45, 0.45), Color(0.4, 0.7, 0.95), Color(0.5, 0.85, 0.6), Color(1, 0.8, 0.4)]))
-		box(n, Vector3(1.8, 0.12, wd * 0.8), Vector3(fx - s * 0.85, 2.75, 0), M(ac, ac, 0.1, 0.8), false, Vector3(0, 0, s * 0.35))
-		box(n, Vector3(1.8, 0.13, wd * 0.18), Vector3(fx - s * 0.85, 2.76, wd * 0.2), M(Color(0.98, 0.96, 0.92)), false, Vector3(0, 0, s * 0.35))
-	# windows on upper floors
-	var win_c: Color = o.get("win", Color(0.65, 0.8, 0.95))
-	var cols := int(wd / 1.8)
-	for f in range(1, floors):
-		for k in cols:
-			var lit: bool = night and randf() < 0.6
-			var wc := Color(1.0, 0.8, 0.5) if lit else win_c
-			var zz := -wd * 0.5 + 0.9 + k * (wd - 1.8) / maxf(1.0, cols - 1)
-			box(n, Vector3(0.06, 1.3, 0.9), Vector3(fx, f * fh + 1.5, zz), w.mat(wc, wc, 1.8 if lit else 0.05, 0.2, 0.2, 0.2))
-			box(n, Vector3(0.12, 0.12, 1.1), Vector3(fx - s * 0.05, f * fh + 0.8, zz), trim)
-	if floors >= 3 and randf() < 0.6:
-		box(n, Vector3(1.0, 0.15, wd * 0.6), Vector3(fx - s * 0.5, fh * 2.0, 0), trim)
-		box(n, Vector3(0.05, 0.8, wd * 0.6), Vector3(fx - s * 0.98, fh * 2.0 + 0.45, 0), trim)
-	# roof
-	match o.get("roof", "flat"):
-		"flat":
-			box(n, Vector3(dp + 0.3, 0.35, wd), Vector3(0, h + 0.15, 0), trim)
-			if randf() < 0.4:
-				cyl(n, 0.8, 1.8, Vector3(s * 1.0, h + 1.2, randf_range(-1, 1)), M(Color(0.55, 0.5, 0.55)))
-		"tile":
-			var rc: Color = o.get("roof_c", Color(0.12, 0.12, 0.16))
-			box(n, Vector3(dp * 0.62, 0.22, wd + 0.8), Vector3(-s * dp * 0.22, h + 0.9, 0), M(rc, Color.BLACK, 0, 0.6, 0.2), true, Vector3(0, 0, s * 0.45))
-			box(n, Vector3(dp * 0.62, 0.22, wd + 0.8), Vector3(s * dp * 0.22, h + 0.9, 0), M(rc, Color.BLACK, 0, 0.6, 0.2), true, Vector3(0, 0, -s * 0.45))
-			box(n, Vector3(2.6, 0.15, wd + 0.4), Vector3(fx - s * 0.9, fh - 0.05, 0), M(rc, Color.BLACK, 0, 0.6), false, Vector3(0, 0, s * 0.3))
-	# signage
-	var sign_c: Color = pick(o.get("signs", [PINK, CYAN, Color(1, 0.8, 0.3)]))
-	match o.get("sign", "vertical"):
-		"vertical":
-			var sh := randf_range(2.8, 4.5)
-			var sy := fh + sh * 0.5 + 0.3
-			var sz := randf_range(-wd * 0.3, wd * 0.3)
-			box(n, Vector3(0.9, sh + 0.2, 0.3), Vector3(fx - s * 0.6, sy, sz), M(Color(0.08, 0.06, 0.1)))
-			box(n, Vector3(0.95, sh, 0.22), Vector3(fx - s * 0.6, sy, sz), G(sign_c, 2.8 if night else 1.4, 0.4))
-			for g in int(sh / 0.7):
-				box(n, Vector3(0.5, 0.35, 0.05), Vector3(fx - s * 0.6, sy - sh * 0.5 + 0.45 + g * 0.7, sz + 0.13), G(Color(1, 1, 1), 2.0))
-			if night:
-				light(n, Vector3(fx - s * 1.6, sy, sz), sign_c, 2.5, 8.0)
-		"panel":
-			var pw := randf_range(2.0, 3.6)
-			box(n, Vector3(0.3, 1.1, pw + 0.2), Vector3(fx - s * 0.15, fh + 0.9, 0), M(Color(0.1, 0.08, 0.14)))
-			box(n, Vector3(0.1, 0.9, pw), Vector3(fx - s * 0.32, fh + 0.9, 0), G(sign_c, 2.2, 0.3))
-			if night:
-				light(n, Vector3(fx - s * 1.5, fh + 0.9, 0), sign_c, 2.0, 7.0)
-	if o.get("lanterns", false):
-		for k in 2:
-			var lz := -wd * 0.25 + k * wd * 0.5
-			sph(n, 0.35, Vector3(fx - s * 1.3, 2.9, lz), G(Color(1.0, 0.3, 0.25), 2.5 if night else 0.8), 1.25)
-			cyl(n, 0.2, 0.08, Vector3(fx - s * 1.3, 3.35, lz), M(Color(0.9, 0.7, 0.2)))
-	if o.get("ac", false):
-		for k in randi_range(1, 3):
-			var ay := randf_range(fh + 0.8, h - 0.8)
-			var az := randf_range(-wd * 0.35, wd * 0.35)
-			box(n, Vector3(0.6, 0.6, 0.9), Vector3(fx - s * 0.3, ay, az), M(Color(0.85, 0.85, 0.9), Color.BLACK, 0, 0.4, 0.3))
-			cyl(n, 0.22, 0.05, Vector3(fx - s * 0.62, ay, az), M(Color(0.3, 0.3, 0.35)), Vector3(0, 0, PI / 2))
-		cyl(n, 0.1, h, Vector3(fx - s * 0.12, h * 0.5, wd * 0.45), M(Color(0.35, 0.33, 0.4), Color.BLACK, 0, 0.4, 0.6))
-	if o.get("plants", false) and randf() < 0.6:
-		cyl(n, 0.35, 0.5, Vector3(fx - s * 1.0, 0.4, wd * 0.4), M(Color(0.3, 0.25, 0.3)))
-		sph(n, 0.6, Vector3(fx - s * 1.0, 1.0, wd * 0.4), M(Color(0.2, 0.45, 0.3), Color.BLACK, 0, 0.9, 0, 0.3))
-	return wd + randf_range(0.2, 1.2)
+	var q := {"colors": o["colors"], "night": o.get("night", false), "roof": o.get("roof", "flat"),
+		"floors": [o.get("fmin", 2), o.get("fmax", 4)], "lanterns": o.get("lanterns", false), "ac": o.get("ac", false),
+		"neon": o.get("night", false)}
+	if o.has("roof_c"):
+		q["roof_c"] = o["roof_c"]
+	if o.has("signs"):
+		q["signs"] = o["signs"]
+	if o.get("night", false):
+		q["words"] = ["RAMEN", "BAR", "HOTEL", "NOODLES", "KARAOKE", "TEA", "SUSHI", "ARCADE"]
+		q["awnings"] = [[Color(0.2, 0.15, 0.25), Color(0.35, 0.2, 0.4)], [Color(0.5, 0.1, 0.2), Color(0.2, 0.1, 0.15)]]
+	return facade_building(z, s, q)
 
 
 func _person(p: Node3D, pos: Vector3, facing: float) -> void:
@@ -591,46 +532,10 @@ func _market_side(z: float, s: float) -> float:
 		if randf() < 0.5:
 			_person(pn, Vector3(0.7, 0, 0.8), randf() * TAU)
 		return randf_range(1.5, 3.0)
-	var wd := randf_range(6.0, 8.5)
-	var n := node(Vector3(s * 11.0, 0, z - wd * 0.5), wd)
-	var floors := randi_range(3, 6)
-	var y := 0.0
-	var pal := [Color(0.42, 0.38, 0.52), Color(0.55, 0.45, 0.6), Color(0.85, 0.55, 0.7), Color(0.5, 0.5, 0.62), Color(0.95, 0.7, 0.75)]
-	for f in floors:
-		var fh := randf_range(2.8, 3.6)
-		var dp := randf_range(5.5, 7.0)
-		var off := randf_range(-0.8, 0.9) if f > 0 else 0.0
-		var c: Color = pick(pal)
-		var fxv := -s * (dp * 0.5) + (-s * off)
-		box(n, Vector3(dp, fh, wd * randf_range(0.85, 1.0)), Vector3(-s * off, y + fh * 0.5, 0), M(c, Color.BLACK, 0, 0.8, 0, 0.3), f < 2)
-		box(n, Vector3(dp + 0.2, 0.25, wd + 0.1), Vector3(-s * off, y + fh, 0), M(c.darkened(0.35)))
-		if f == 0:
-			box(n, Vector3(0.06, 2.0, wd * 0.6), Vector3(fxv - s * 0.02, 1.2, 0), w.mat(Color(1, 0.8, 0.55), Color(1, 0.75, 0.45), 1.2, 0.2))
-			var ac2: Color = pick([Color(1, 0.4, 0.35), Color(0.3, 0.7, 0.9), Color(0.95, 0.75, 0.3)])
-			box(n, Vector3(1.6, 0.12, wd * 0.7), Vector3(fxv - s * 0.8, 2.6, 0), M(ac2, ac2, 0.15), false, Vector3(0, 0, s * 0.3))
-		else:
-			for k in 2:
-				var zz := -wd * 0.22 + k * wd * 0.44
-				box(n, Vector3(0.06, 1.2, 1.4), Vector3(fxv - s * 0.02, y + fh * 0.55, zz), w.mat(Color(0.35, 0.3, 0.5), Color(0.5, 0.6, 1.0), 0.3, 0.2, 0.4))
-			if randf() < 0.55:
-				var sc: Color = pick([CYAN, PINK, Color(0.6, 0.45, 1.0)])
-				var pw := randf_range(1.6, 3.0)
-				box(n, Vector3(0.35, 1.0, pw + 0.2), Vector3(fxv - s * 0.3, y + fh * 0.5, randf_range(-1.0, 1.0)), M(Color(0.12, 0.1, 0.16)))
-				box(n, Vector3(0.1, 0.8, pw), Vector3(fxv - s * 0.5, y + fh * 0.5, randf_range(-1.0, 1.0)), G(sc, 2.6, 0.5))
-			if randf() < 0.5:
-				var ay := y + fh * 0.3
-				box(n, Vector3(0.6, 0.55, 0.85), Vector3(fxv - s * 0.3, ay, wd * 0.35), M(Color(0.88, 0.88, 0.92), Color.BLACK, 0, 0.4, 0.3))
-				cyl(n, 0.2, 0.05, Vector3(fxv - s * 0.62, ay, wd * 0.35), M(Color(0.3, 0.3, 0.35)), Vector3(0, 0, PI / 2))
-		y += fh
-	cyl(n, 0.09, y, Vector3(-s * 3.2, y * 0.5, -wd * 0.45), M(Color(0.3, 0.3, 0.35), Color.BLACK, 0, 0.4, 0.6))
-	if randf() < 0.7:
-		var words := ["NOODLES", "GAMES", "ARCADE", "SUSHI", "PHONES", "KARAOKE", "BOBA", "HOTEL", "MANGA", "PIZZA", "RAMEN", "TECH"]
-		var bc: Color = pick([Color(0.12, 0.08, 0.18), Color(0.95, 0.3, 0.55), Color(0.15, 0.45, 0.85)])
-		blade_sign(n, Vector3(-s * 3.1, randf_range(4.0, maxf(4.5, y - 1.5)), wd * 0.38), s, pick(words), bc, pick([CYAN, PINK, Color(1, 0.85, 0.3), Color(1, 1, 1)]), true)
-	if randf() < 0.5:
-		sph(n, 0.7, Vector3(-s * 1.0, y + 0.6, 0), M(Color(0.3, 0.6, 0.4)))
-	light(n, Vector3(-s * 4.8, 3.0, 0), pick([CYAN, PINK]), 1.4, 7.0)
-	return wd + randf_range(0.0, 0.6)
+	return facade_building(z, s, {"colors": [Color(0.55, 0.45, 0.65), Color(0.85, 0.55, 0.7), Color(0.5, 0.6, 0.75), Color(0.95, 0.72, 0.6), Color(0.62, 0.78, 0.7)],
+		"floors": [3, 5], "neon": true, "ac": true, "depth": 7.0,
+		"words": ["NOODLES", "GAMES", "ARCADE", "SUSHI", "PHONES", "KARAOKE", "BOBA", "HOTEL", "MANGA", "PIZZA", "RAMEN", "TECH"],
+		"signs": [CYAN, PINK, Color(0.6, 0.45, 1.0), Color(1, 0.8, 0.3)]})
 
 
 func _power_lines(z: float) -> void:
@@ -1247,22 +1152,21 @@ func barber_shop(z: float, s: float, night := false) -> float:
 
 
 func _upper_windows(n: Node3D, fx: float, s: float, wd: float, floors: int, base: float, fh: float, night: bool) -> void:
-	var trim := M(Color(0.95, 0.93, 0.9))
-	var cols := maxi(2, int(wd / 2.0))
+	var trim := M(Color(0.96, 0.94, 0.9))
+	var glass_day: Material = w.mat(Color(0.45, 0.62, 0.8), Color(0.3, 0.45, 0.65), 0.12, 0.08, 0.5, 0.5)
+	var glass_lit: Material = w.mat(Color(1.0, 0.82, 0.52), Color(1.0, 0.82, 0.52), 1.8, 0.2)
+	var front := Vector3(-s, 0, 0)
+	var fc := Vector3(fx, 0, 0)
+	var cols := maxi(2, int((wd - 1.0) / 2.2))
+	var deco := {"lintel": true, "lintel_m": M(Color(0.3, 0.25, 0.25))}
 	for f in range(1, floors):
+		var y := base + (f - 1) * fh + 1.5
+		box(n, Vector3(0.22, 0.18, wd + 0.05), Vector3(fx - s * 0.1, base + (f - 1) * fh, 0), trim)
 		for k in cols:
-			var zz := -wd * 0.5 + 1.0 + k * (wd - 2.0) / maxf(1.0, cols - 1)
-			var lit := night and randf() < 0.55
-			var wc := Color(1.0, 0.82, 0.5) if lit else Color(0.55, 0.7, 0.85)
-			var y := base + (f - 1) * fh + 1.5
-			box(n, Vector3(0.06, 1.4, 1.0), Vector3(fx - s * 0.01, y, zz), w.mat(wc, wc, 1.6 if lit else 0.08, 0.15, 0.2, 0.2))
-			box(n, Vector3(0.14, 0.1, 1.2), Vector3(fx - s * 0.06, y - 0.75, zz), trim)
-			box(n, Vector3(0.1, 1.5, 0.08), Vector3(fx - s * 0.04, y, zz), trim)
-			if randf() < 0.25:
-				# flower box
-				box(n, Vector3(0.3, 0.22, 1.0), Vector3(fx - s * 0.2, y - 0.62, zz), M(Color(0.5, 0.3, 0.2)))
-				for j in 3:
-					sph(n, 0.13, Vector3(fx - s * 0.22, y - 0.45, zz - 0.3 + j * 0.3), M(pick([Color(1, 0.4, 0.5), Color(1, 0.85, 0.3), Color(0.9, 0.5, 1.0)])))
+			var u := (-wd * 0.5 + 1.1 + k * (wd - 2.2) / maxf(1.0, cols - 1)) * -s
+			var d := deco.duplicate()
+			d["flowers"] = randf() < 0.3
+			window(n, fc, front, u, y, 1.0, 1.4, trim, glass_lit if (night and randf() < 0.6) else glass_day, d)
 	# rooftop: water tank / antenna / AC
 	var h := base + (floors - 1) * fh
 	var rr := randf()
@@ -1484,3 +1388,216 @@ func _highway_far(z: float, s: float) -> void:
 			if randf() < 0.5:
 				box(n, Vector3(wd + 0.05, 0.3, wd * 0.6), off + Vector3(0, f * 3.5 + 2.0, 0), G(Color(1.0, 0.75, 0.4), 1.0))
 		sph(n, 0.4, off + Vector3(0, h + 0.5, 0), G(Color(1, 0.2, 0.2), 3.0, 1.0))
+
+
+# ================================================================ v7 detailed buildings
+## One box on a facade. `c` = a point on the wall surface at ground level,
+## `nrm` = the wall's outward normal (±X or +Z). u = along the wall, d = out of it.
+func fbox(p: Node3D, c: Vector3, nrm: Vector3, u: float, y: float, d: float, su: float, sy: float, sd: float, m: Material, sh := false) -> MeshInstance3D:
+	var t := Vector3(-nrm.z, 0, nrm.x)
+	var size := Vector3(absf(nrm.x) * sd + absf(t.x) * su, sy, absf(nrm.z) * sd + absf(t.z) * su)
+	return box(p, size, c + t * u + nrm * d + Vector3(0, y, 0), m, sh)
+
+
+func window(p: Node3D, c: Vector3, nrm: Vector3, u: float, y: float, w: float, h: float, trim: Material, glass: Material, deco: Dictionary) -> void:
+	fbox(p, c, nrm, u, y, 0.02, w, h, 0.06, glass)
+	fbox(p, c, nrm, u, y + h * 0.5 + 0.05, 0.06, w + 0.2, 0.1, 0.14, trim)   # head
+	fbox(p, c, nrm, u - w * 0.5 - 0.05, y, 0.06, 0.1, h + 0.1, 0.12, trim)   # jambs
+	fbox(p, c, nrm, u + w * 0.5 + 0.05, y, 0.06, 0.1, h + 0.1, 0.12, trim)
+	fbox(p, c, nrm, u, y - h * 0.5 - 0.06, 0.1, w + 0.3, 0.1, 0.24, trim)    # sill
+	fbox(p, c, nrm, u, y, 0.05, 0.05, h, 0.05, trim)                            # mullion
+	fbox(p, c, nrm, u, y + h * 0.12, 0.05, w, 0.05, 0.05, trim)                 # transom
+	if deco.get("lintel", false):
+		fbox(p, c, nrm, u, y + h * 0.5 + 0.2, 0.08, w + 0.4, 0.16, 0.16, deco["lintel_m"])
+	if deco.get("shutters", false):
+		for sd in [-1.0, 1.0]:
+			fbox(p, c, nrm, u + sd * (w * 0.5 + 0.34), y, 0.05, 0.42, h + 0.05, 0.05, deco["shutter_m"])
+			for k in 4:
+				fbox(p, c, nrm, u + sd * (w * 0.5 + 0.34), y - h * 0.35 + k * h * 0.23, 0.08, 0.36, 0.04, 0.03, trim)
+	if deco.get("flowers", false):
+		fbox(p, c, nrm, u, y - h * 0.5 - 0.25, 0.2, w + 0.1, 0.24, 0.3, M(Color(0.55, 0.32, 0.2)))
+		for k in 4:
+			var fc: Color = pick([Color(1, 0.4, 0.5), Color(1, 0.85, 0.3), Color(0.95, 0.55, 1.0), Color(1, 1, 1)])
+			var tt := Vector3(-nrm.z, 0, nrm.x)
+			sph(p, 0.13, c + tt * (u - w * 0.4 + k * w * 0.27) + nrm * 0.25 + Vector3(0, y - h * 0.5 - 0.05, 0), M(fc, Color.BLACK, 0, 0.9))
+		for k in 3:
+			var tt2 := Vector3(-nrm.z, 0, nrm.x)
+			sph(p, 0.15, c + tt2 * (u - w * 0.3 + k * w * 0.3) + nrm * 0.2 + Vector3(0, y - h * 0.5 - 0.1, 0), M(Color(0.3, 0.6, 0.3), Color.BLACK, 0, 0.9))
+	if deco.get("ac", false):
+		fbox(p, c, nrm, u + w * 0.2, y - h * 0.5 - 0.55, 0.3, 0.8, 0.55, 0.55, M(Color(0.9, 0.9, 0.92), Color.BLACK, 0, 0.4, 0.3))
+		fbox(p, c, nrm, u + w * 0.2, y - h * 0.5 - 0.55, 0.58, 0.45, 0.4, 0.02, M(Color(0.35, 0.35, 0.4)))
+
+
+## Detailed town building (cartoon-realistic). o keys: colors, trims, floors
+## [min,max], night, roof ("flat"/"tile"), roof_c, awnings, signs, words,
+## lanterns, neon, depth.
+func facade_building(z: float, s: float, o: Dictionary) -> float:
+	var wd := randf_range(6.5, 9.0)
+	var dp: float = o.get("depth", randf_range(6.5, 8.0))
+	var fl: Array = o.get("floors", [2, 4])
+	var floors := randi_range(fl[0], fl[1])
+	var gh := 3.8
+	var fh := 3.1
+	var h := gh + (floors - 1) * fh
+	var n := node(Vector3(s * (7.9 + dp * 0.5), 0, z - wd * 0.5), wd)
+	var night: bool = o.get("night", false)
+	var wall_c: Color = pick(o["colors"])
+	var trim_c: Color = pick(o.get("trims", [Color(0.97, 0.95, 0.9), wall_c.lightened(0.45)]))
+	var wall := M(wall_c, Color.BLACK, 0, 0.85, 0, 0.12)
+	var trim := M(trim_c, Color.BLACK, 0, 0.6, 0, 0.1)
+	var dark := M(wall_c.darkened(0.45), Color.BLACK, 0, 0.7)
+	var stone := M(Color(0.62, 0.6, 0.58), Color.BLACK, 0, 0.9)
+	var glass_day: Material = w.mat(Color(0.45, 0.62, 0.8), Color(0.3, 0.45, 0.65), 0.12, 0.08, 0.5, 0.5)
+	var lit_c := Color(1.0, 0.82, 0.52)
+	var glass_lit: Material = w.mat(lit_c, lit_c, 1.8, 0.2)
+	var front := Vector3(-s, 0, 0)
+	var fc := Vector3(-s * dp * 0.5, 0, 0)
+	var endn := Vector3(0, 0, 1)
+	var ec := Vector3(0, 0, wd * 0.5)
+	# body, plinth, corner pilasters
+	box(n, Vector3(dp, h, wd), Vector3(0, h * 0.5, 0), wall, true)
+	box(n, Vector3(dp + 0.12, 0.5, wd + 0.12), Vector3(0, 0.25, 0), stone)
+	for zz in [-wd * 0.5 + 0.22, wd * 0.5 - 0.22]:
+		fbox(n, fc, front, zz * -s, h * 0.5, 0.06, 0.44, h, 0.16, trim)
+	for xx in [-dp * 0.5 + 0.22, dp * 0.5 - 0.22]:
+		fbox(n, ec, endn, xx, h * 0.5, 0.06, 0.44, h, 0.16, trim)
+	# floor bands + cornice + parapet
+	for f in range(1, floors):
+		var y := gh + (f - 1) * fh
+		fbox(n, fc, front, 0, y, 0.1, wd + 0.1, 0.2, 0.22, trim)
+		fbox(n, ec, endn, 0, y, 0.1, dp + 0.1, 0.2, 0.22, trim)
+	var roof: String = o.get("roof", "flat")
+	if roof == "flat":
+		box(n, Vector3(dp + 0.5, 0.3, wd + 0.5), Vector3(0, h + 0.05, 0), dark)
+		box(n, Vector3(dp + 0.3, 0.18, wd + 0.3), Vector3(0, h - 0.25, 0), trim)
+		for sd in [-1.0, 1.0]:
+			box(n, Vector3(0.25, 0.7, wd), Vector3(sd * (dp * 0.5 - 0.05), h + 0.5, 0), wall)
+			box(n, Vector3(0.35, 0.1, wd + 0.1), Vector3(sd * (dp * 0.5 - 0.05), h + 0.88, 0), trim)
+		for sd in [-1.0, 1.0]:
+			box(n, Vector3(dp, 0.7, 0.25), Vector3(0, h + 0.5, sd * (wd * 0.5 - 0.05)), wall)
+			box(n, Vector3(dp + 0.1, 0.1, 0.35), Vector3(0, h + 0.88, sd * (wd * 0.5 - 0.05)), trim)
+		_roof_props(n, s, dp, wd, h, night)
+	else:
+		var rc: Color = o.get("roof_c", Color(0.25, 0.28, 0.35))
+		var rm := M(rc, Color.BLACK, 0, 0.6, 0.15)
+		box(n, Vector3(dp * 0.62, 0.22, wd + 0.9), Vector3(-dp * 0.24, h + 1.0, 0), rm, true, Vector3(0, 0, 0.5))
+		box(n, Vector3(dp * 0.62, 0.22, wd + 0.9), Vector3(dp * 0.24, h + 1.0, 0), rm, true, Vector3(0, 0, -0.5))
+		box(n, Vector3(0.3, 0.3, wd + 1.0), Vector3(0, h + 1.72, 0), M(rc.darkened(0.3)))
+		box(n, Vector3(dp, 1.6, 0.2), Vector3(0, h + 0.7, wd * 0.5 - 0.1), wall)
+		for k in int(wd / 0.9):
+			box(n, Vector3(0.08, 0.1, 0.5), Vector3(-s * (dp * 0.5 + 0.25), h + 0.45, -wd * 0.5 + 0.45 + k * 0.9), rm)
+	# ---- ground floor storefront
+	var sw := wd * 0.58
+	var su := wd * 0.12 * -s
+	var shop_glass: Material = w.mat(Color(1.0, 0.86, 0.6), Color(1.0, 0.75, 0.45), 1.6 if night else 0.35, 0.1)
+	fbox(n, fc, front, su, 1.55, 0.02, sw, 2.3, 0.06, shop_glass)
+	for k in int(sw / 1.2) + 1:
+		fbox(n, fc, front, su - sw * 0.5 + k * sw / int(sw / 1.2), 1.55, 0.06, 0.1, 2.4, 0.1, dark)
+	fbox(n, fc, front, su, 2.75, 0.06, sw + 0.2, 0.14, 0.14, dark)
+	fbox(n, fc, front, su, 0.45, 0.07, sw + 0.2, 0.4, 0.12, dark)
+	# a peek inside: counter + shelves
+	fbox(n, fc, front, su, 0.55, -0.9, sw * 0.8, 1.0, 0.6, M(Color(0.55, 0.38, 0.25)))
+	for k in 3:
+		fbox(n, fc, front, su, 1.0 + k * 0.5, -2.0, sw * 0.9, 0.06, 0.5, M(Color(0.8, 0.8, 0.82)))
+		for j in 5:
+			fbox(n, fc, front, su - sw * 0.35 + j * sw * 0.18, 1.12 + k * 0.5, -2.0, 0.18, 0.2, 0.18, M(pick([Color(1, 0.4, 0.3), Color(0.3, 0.7, 1), Color(1, 0.85, 0.3), Color(0.5, 0.9, 0.5)])))
+	# door
+	var du := (wd * 0.5 - 1.0) * -s
+	fbox(n, fc, front, du, 1.25, 0.05, 1.3, 2.6, 0.12, dark)
+	fbox(n, fc, front, du, 1.15, 0.09, 1.0, 2.25, 0.06, M(Color(0.45, 0.28, 0.18)))
+	fbox(n, fc, front, du, 1.5, 0.12, 0.6, 1.0, 0.03, glass_day if not night else glass_lit)
+	fbox(n, fc, front, du + 0.35 * -s, 1.1, 0.15, 0.06, 0.25, 0.06, M(Color(0.9, 0.8, 0.4), Color.BLACK, 0, 0.3, 0.9))
+	for sd in [-1.0, 1.0]:
+		fbox(n, fc, front, du + sd * 0.85, 2.3, 0.18, 0.18, 0.3, 0.2, G(Color(1.0, 0.85, 0.55), 2.5 if night else 1.0))
+	if night:
+		light(n, fc + front * 1.2 + Vector3(0, 2.4, 0), Color(1.0, 0.8, 0.5), 1.4, 6.0)
+	# awning with stripes + valance
+	var aw: Array = o.get("awnings", [[Color(0.9, 0.25, 0.3), Color(0.98, 0.95, 0.9)], [Color(0.2, 0.5, 0.85), Color(0.98, 0.95, 0.9)], [Color(0.2, 0.6, 0.4), Color(0.98, 0.95, 0.9)], [Color(0.95, 0.6, 0.15), Color(0.3, 0.2, 0.15)]])
+	var ac: Array = pick(aw)
+	var strips := 8
+	for k in strips:
+		var am := M(ac[k % 2], Color.BLACK, 0, 0.8)
+		var zz := su - sw * 0.5 - 0.1 + (k + 0.5) * (sw + 0.2) / strips
+		box(n, Vector3(1.7, 0.08, (sw + 0.2) / strips + 0.01), fc + front * 0.8 + Vector3(0, 3.05, 0) + Vector3(0, 0, zz * -s), am, false, Vector3(0, 0, s * 0.35))
+		box(n, Vector3(0.05, 0.3, (sw + 0.2) / strips + 0.01), fc + front * 1.62 + Vector3(0, 2.62, zz * -s), am)
+	# sign board with LED text
+	var words: Array = o.get("words", ["SHOP", "CAFE", "BAKERY", "BOOKS", "FLOWERS", "TOYS", "DELI", "MUSIC", "SHOES", "TEA"])
+	var sg_c: Color = pick(o.get("signs", [Color(0.95, 0.35, 0.4), Color(0.25, 0.7, 0.9), Color(1, 0.8, 0.3)]))
+	fbox(n, fc, front, su, 3.45, 0.12, sw * 0.8, 0.6, 0.16, M(Color(0.12, 0.1, 0.14)))
+	fbox(n, fc, front, su, 3.45, 0.15, sw * 0.8 + 0.1, 0.68, 0.1, G(sg_c, 1.6 if night else 0.8))
+	text(n, pick(words), fc + front * 0.25 + Vector3(0, 3.45, su), 0.012, Color(1, 1, 1), 2.2, Vector3(0, -s * PI * 0.5, 0))
+	if o.get("lanterns", false):
+		for k in 2:
+			var lz := -wd * 0.25 + k * wd * 0.5
+			sph(n, 0.33, fc + front * 1.3 + Vector3(0, 3.0, lz), G(Color(1.0, 0.3, 0.25), 2.5 if night else 0.9), 1.25)
+			cyl(n, 0.18, 0.08, fc + front * 1.3 + Vector3(0, 3.42, lz), M(Color(0.9, 0.7, 0.2)))
+	# ---- upper floors
+	var deco_base := {"lintel_m": dark, "shutter_m": M(pick([Color(0.2, 0.45, 0.35), Color(0.55, 0.25, 0.2), Color(0.25, 0.35, 0.6), Color(0.95, 0.95, 0.9)]))}
+	var cols := maxi(2, int((wd - 1.0) / 2.2))
+	var shutters := randf() < 0.4
+	for f in range(1, floors):
+		var y := gh + (f - 1) * fh + 1.55
+		var balcony := randf() < 0.3
+		for k in cols:
+			var u := (-wd * 0.5 + 1.1 + k * (wd - 2.2) / maxf(1.0, cols - 1)) * -s
+			var lit := night and randf() < 0.6
+			var deco := deco_base.duplicate()
+			deco["lintel"] = randf() < 0.5
+			deco["shutters"] = shutters and not balcony
+			deco["flowers"] = not balcony and randf() < 0.25
+			deco["ac"] = o.get("ac", false) and randf() < 0.3
+			window(n, fc, front, u, y, 1.05, 1.45, trim, glass_lit if lit else glass_day, deco)
+		if balcony:
+			var bw := wd * 0.7
+			fbox(n, fc, front, 0, y - 0.95, 0.55, bw, 0.14, 1.1, trim)
+			fbox(n, fc, front, 0, y - 0.28, 1.05, bw, 0.06, 0.08, dark)
+			for k in int(bw / 0.28):
+				fbox(n, fc, front, -bw * 0.5 + 0.14 + k * 0.28, y - 0.6, 1.05, 0.04, 0.62, 0.04, dark)
+			for k in 3:
+				sph(n, 0.28, fc + front * 0.5 + Vector3(0, y - 0.62, (-bw * 0.3 + k * bw * 0.3)), M(Color(0.3, 0.6, 0.32), Color.BLACK, 0, 0.9))
+		# end-wall windows (the side you see while approaching)
+		for k in 2:
+			var eu := -dp * 0.25 + k * dp * 0.5
+			var lit2 := night and randf() < 0.5
+			window(n, ec, endn, eu, y, 0.95, 1.35, trim, glass_lit if lit2 else glass_day, deco_base)
+	# drain pipe + wall lamp on the end wall
+	fbox(n, ec, endn, dp * 0.5 - 0.35, h * 0.5, 0.12, 0.12, h, 0.12, M(Color(0.45, 0.45, 0.5), Color.BLACK, 0, 0.4, 0.6))
+	if o.get("neon", false):
+		var nc: Color = pick([PINK, CYAN, Color(0.7, 0.4, 1.0), Color(1.0, 0.6, 0.2)])
+		fbox(n, fc, front, 0, h - 0.15, 0.15, wd * 0.95, 0.08, 0.06, G(nc, 3.0, 0.5))
+		fbox(n, ec, endn, 0, h - 0.15, 0.15, dp * 0.95, 0.08, 0.06, G(nc, 3.0, 0.5))
+	if o.get("blade", true) and floors >= 2:
+		blade_sign(n, fc + Vector3(0, gh + 1.2, wd * 0.36 * -s), s, pick(words), Color(0.1, 0.08, 0.14), sg_c, night)
+	return wd + randf_range(0.2, 0.8)
+
+
+func _roof_props(n: Node3D, s: float, dp: float, wd: float, h: float, night: bool) -> void:
+	var r := randf()
+	var metal := M(Color(0.6, 0.62, 0.66), Color.BLACK, 0, 0.35, 0.7)
+	if r < 0.3:
+		var tp := Vector3(s * dp * 0.15, h, -wd * 0.15)
+		for k in 4:
+			box(n, Vector3(0.1, 1.4, 0.1), tp + Vector3(0.5 if k % 2 == 0 else -0.5, 0.7, 0.5 if k < 2 else -0.5), metal)
+		cyl(n, 0.85, 1.6, tp + Vector3(0, 2.2, 0), M(Color(0.55, 0.38, 0.28), Color.BLACK, 0, 0.8))
+		cone(n, 0.95, 0.6, tp + Vector3(0, 3.3, 0), M(Color(0.35, 0.25, 0.22)))
+		for k in 3:
+			cyl(n, 0.87, 0.06, tp + Vector3(0, 1.6 + k * 0.5, 0), metal)
+	elif r < 0.55:
+		for k in randi_range(2, 3):
+			var p := Vector3(s * randf_range(-1.5, 2.0), h, randf_range(-wd * 0.3, wd * 0.3))
+			box(n, Vector3(1.1, 0.8, 1.0), p + Vector3(0, 0.4, 0), M(Color(0.88, 0.88, 0.9), Color.BLACK, 0, 0.4, 0.3))
+			cyl(n, 0.35, 0.05, p + Vector3(0, 0.82, 0), M(Color(0.3, 0.3, 0.35)))
+		cyl(n, 0.04, 3.0, Vector3(s * 1.0, h + 1.5, wd * 0.3), metal)
+		sph(n, 0.1, Vector3(s * 1.0, h + 3.05, wd * 0.3), G(Color(1, 0.2, 0.2), 3.0, 1.0))
+	elif r < 0.78:
+		# stair hut + skylight
+		box(n, Vector3(1.8, 2.2, 2.0), Vector3(s * 1.2, h + 1.1, -wd * 0.2), M(Color(0.8, 0.78, 0.75)), true)
+		box(n, Vector3(2.0, 0.15, 2.2), Vector3(s * 1.2, h + 2.25, -wd * 0.2), M(Color(0.35, 0.35, 0.4)))
+		box(n, Vector3(1.4, 0.5, 1.6), Vector3(-s * 1.0, h + 0.3, wd * 0.2), w.mat(Color(0.5, 0.7, 0.85), Color(0.4, 0.6, 0.8), 0.3 if not night else 1.2, 0.1, 0.4))
+	else:
+		# roof garden
+		box(n, Vector3(dp * 0.6, 0.4, wd * 0.5), Vector3(0, h + 0.2, 0), M(Color(0.5, 0.35, 0.25)))
+		box(n, Vector3(dp * 0.58, 0.05, wd * 0.48), Vector3(0, h + 0.42, 0), M(Color(0.35, 0.6, 0.3), Color.BLACK, 0, 0.9))
+		for k in 4:
+			sph(n, randf_range(0.35, 0.6), Vector3(randf_range(-dp * 0.25, dp * 0.25), h + 0.8, randf_range(-wd * 0.2, wd * 0.2)), M(pick([Color(0.3, 0.6, 0.3), Color(0.4, 0.7, 0.35), Color(1, 0.6, 0.7)]), Color.BLACK, 0, 0.9))
+		bench(n, Vector3(0, h + 0.1, -wd * 0.2), s)

@@ -11,10 +11,11 @@ const COSTS := [250, 600, 1200, 2400, 4200]
 const UPGRADES := [
 	{"id": "magnet", "name": "COIN MAGNET", "desc": "Magnet power-up lasts longer", "unit": "s", "vals": [8, 10, 12, 14, 17, 20], "color": Color(1.0, 0.4, 0.45)},
 	{"id": "shield", "name": "SHIELD", "desc": "Shield power-up lasts longer", "unit": "s", "vals": [8, 10, 12, 14, 17, 20], "color": Color(0.35, 0.9, 1.0)},
-	{"id": "slowmo", "name": "SLOW-MO", "desc": "Slow-mo power-up lasts longer", "unit": "s", "vals": [4, 5, 6, 7, 8, 10], "color": Color(0.65, 0.6, 1.0)},
+	{"id": "springs", "name": "SPRING SHOES", "desc": "Super-jump power-up lasts longer", "unit": "s", "vals": [8, 10, 12, 14, 17, 20], "color": Color(0.4, 1.0, 0.55)},
 	{"id": "double", "name": "2X SCORE", "desc": "Double score + coins lasts longer", "unit": "s", "vals": [10, 13, 16, 20, 24, 30], "color": Color(1.0, 0.8, 0.25)},
 	{"id": "dash", "name": "DASH  [Q]", "desc": "Shorter dash cooldown", "unit": "s", "vals": [3.0, 2.6, 2.2, 1.9, 1.6, 1.3], "color": Color(1.0, 0.35, 0.75)},
 	{"id": "sky", "name": "SKY JUMP  [SPACE x2]", "desc": "Shorter sky-jump cooldown", "unit": "s", "vals": [7.0, 6.0, 5.2, 4.5, 3.8, 3.0], "color": Color(0.4, 1.0, 0.6)},
+	{"id": "ride", "name": "RIDE TIME", "desc": "How long a vehicle lasts", "unit": "s", "vals": [20, 25, 30, 36, 43, 52], "color": Color(0.35, 0.8, 1.0)},
 	{"id": "armor", "name": "VEHICLE ARMOR", "desc": "Hits your ride can take", "unit": " hits", "vals": [1, 1, 2, 2, 3, 3], "color": Color(1.0, 0.6, 0.3)},
 ]
 

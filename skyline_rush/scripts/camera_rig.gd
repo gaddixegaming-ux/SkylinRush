@@ -65,7 +65,7 @@ func update_cam(delta: float, player, speed_factor: float, extra_fov: float, cur
 
 	match mode:
 		Mode.MENU:
-			var lobby: bool = player.char_idx != 0
+			var lobby := true
 			var rad := 4.3 if lobby else 6.0
 			orbit = (2.2 + sin(t * 0.3) * 0.22) if lobby else (2.55 + sin(t * 0.25) * 0.45)
 			target_pos = p + Vector3(sin(orbit) * rad, (1.7 if lobby else 2.3) + sin(t * 0.4) * 0.2, cos(orbit) * rad)
@@ -80,10 +80,11 @@ func update_cam(delta: float, player, speed_factor: float, extra_fov: float, cur
 			ground_ref = lerpf(ground_ref, fl, 1.0 - exp(-3.0 * delta))
 			var above := maxf(0.0, p.y - ground_ref)
 			var hy := ground_ref * 0.95 + above * 0.5
-			target_pos = Vector3(p.x * 0.72, 3.5 + hy + dip, 6.9 + speed_factor * 1.6 + hy * 0.3)
+			# close over-the-shoulder chase: the runner fills the lower third
+			target_pos = Vector3(p.x * 0.82, 2.55 + hy + dip * 0.8, 4.6 + speed_factor * 0.9 + hy * 0.25)
 			# look ahead into the curve of the road
-			target_look = Vector3(p.x * 0.85 + curve.x * 400.0, 1.2 + hy * 0.9 + above * 0.2 + dip * 0.5 + curve.y * 150.0, -12.0)
-			fov_mod += hy * 1.2
+			target_look = Vector3(p.x * 0.9 + curve.x * 300.0, 1.45 + hy * 0.92 + above * 0.25 + dip * 0.4 + curve.y * 110.0, -9.0)
+			fov_mod += hy * 1.0
 			var tr: int = cs.get("trick", 0)
 			if tr != 0:
 				target_pos.x = p.x * 0.35 - tr * 1.2
@@ -115,7 +116,7 @@ func update_cam(delta: float, player, speed_factor: float, extra_fov: float, cur
 			if cs.get("phase", false):
 				fov_mod += 4.0 + sin(t * 30.0) * 1.5
 			if cs.get("air", false):
-				target_pos.y += 0.4
+				target_pos.y += 0.25
 			if swoop > 0.0:
 				swoop = maxf(0.0, swoop - delta * 0.9)
 				var e := swoop * swoop * (3.0 - 2.0 * swoop)
@@ -175,8 +176,8 @@ func update_cam(delta: float, player, speed_factor: float, extra_fov: float, cur
 
 	# FOV: base + speed + effects + punches + context
 	fov_punch = lerpf(fov_punch, 0.0, 1.0 - exp(-4.0 * delta))
-	var base := 62.0 if mode == Mode.MENU else 70.0
+	var base := 58.0 if mode == Mode.MENU else 66.0
 	if mode == Mode.DEAD:
 		base = 55.0
-	var ft := base + speed_factor * 18.0 + extra_fov + fov_punch + fov_mod
+	var ft := base + speed_factor * 13.0 + extra_fov * 0.8 + fov_punch + fov_mod
 	fov = lerpf(fov, clampf(ft, 45.0, 115.0), 1.0 - exp(-6.0 * delta))

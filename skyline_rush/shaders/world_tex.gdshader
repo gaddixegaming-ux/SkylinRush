@@ -22,3 +22,5 @@ void fragment() {
 	float fres = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.0);
 	EMISSION = vec3(1.0, 0.95, 0.9) * fres * 0.12;
 }
+
+#include "res://shaders/toon_light.gdshaderinc"

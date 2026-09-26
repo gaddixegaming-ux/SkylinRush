@@ -28,3 +28,5 @@ void fragment() {
 	EMISSION = emission_color.rgb * emission_energy * (1.0 + beat * beat_pulse)
 		+ rim_color.rgb * fres * rim_strength;
 }
+
+#include "res://shaders/toon_light.gdshaderinc"

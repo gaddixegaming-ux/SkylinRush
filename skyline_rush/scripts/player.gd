@@ -85,12 +85,18 @@ var vehicle := ""          # "", "skate", "hover", "moto"
 var veh_node: Node3D = null
 var veh_variant := -1
 var sky_ready := true      # set by main from the SKY JUMP cooldown
+var jump_mult := 1.0       # spring shoes power-up
 var tap_t := 10.0          # time since the last ground jump (double-tap window)
 var trick_t := -1.0        # quarter-pipe trick timer (-1 = none)
 var trick_side := 0
 var trick_x0 := 0.0
 var trick_p1 := Vector2.ZERO
 var trick_spin := 0.0
+var board_spin := 0.0
+var board_trick := ""
+var board_axis := Vector2.ZERO  # (yaw turns, roll turns) of the current trick
+const BOARD_TRICKS := {"KICKFLIP": Vector2(0, 1), "HEELFLIP": Vector2(0, -1), "360 SHUV-IT": Vector2(1, 0),
+	"TRE FLIP": Vector2(1, 1), "VARIAL": Vector2(0.5, 1), "IMPOSSIBLE": Vector2(-1, 1)}
 
 var model: Node3D
 var body_pivot: Node3D
@@ -458,7 +464,7 @@ func set_phase_visual(on: bool) -> void:
 func set_cores(list: Array) -> void:
 	cores = list.duplicate()
 	var cols := {"shield": Color(0.35, 0.9, 1.0), "surge": Color(1.0, 0.35, 0.75), "gold": Color(1.0, 0.8, 0.25),
-		"magnet": Color(1.0, 0.35, 0.4), "slowmo": Color(0.65, 0.55, 1.0), "double": Color(1.0, 0.8, 0.2)}
+		"magnet": Color(1.0, 0.35, 0.4), "springs": Color(0.4, 1.0, 0.55), "double": Color(1.0, 0.8, 0.2)}
 	for i in orbit_meshes.size():
 		var mi: MeshInstance3D = orbit_meshes[i]
 		mi.visible = i < cores.size()
@@ -508,6 +514,11 @@ func _do_jump(kind: String) -> void:
 			tap_t = 10.0
 		_:
 			vy = JUMP_VELOCITY
+	vy *= jump_mult
+	if vehicle == "skate":
+		board_trick = BOARD_TRICKS.keys()[randi() % BOARD_TRICKS.size()]
+		board_axis = BOARD_TRICKS[board_trick]
+		board_spin = 0.001
 	squash = Vector3(0.8, 1.25, 0.8)
 	jump_serial += 1
 	last_jump_kind = kind
@@ -742,9 +753,29 @@ func _finish_anim(delta: float, speed: float, running: bool) -> void:
 	for m in body_mats:
 		m.emission = glow_color
 		m.emission_energy_multiplier = glow * 1.6
+	if veh_node != null and running:
+		if vehicle == "skate":
+			# every jump is a board trick; on the ground the board carves into
+			# lane changes and turns sideways for a boardslide on rails
+			if board_spin > 0.0:
+				board_spin += delta / 0.5
+				if board_spin >= 1.0 or (grounded and board_spin > 0.3):
+					board_spin = 0.0
+			var e := board_spin * board_spin * (3.0 - 2.0 * board_spin)
+			var carve := clampf(-x_vel * 0.035, -0.35, 0.35)
+			var yaw := (1.35 if grinding else carve) + board_axis.x * TAU * e
+			veh_node.rotation.y = lerpf(veh_node.rotation.y, yaw, 1.0 if board_spin > 0.0 else 1.0 - exp(-12.0 * delta))
+			veh_node.rotation.z = board_axis.y * TAU * e + clampf(x_vel * 0.02, -0.25, 0.25)
+			veh_node.rotation.x = 0.0 if grounded else -0.12
+		else:
+			# nose up on take-off, level again on landing
+			var pitch := 0.0 if grounded else clampf(vy * 0.016, -0.28, 0.32)
+			veh_node.rotation.x = lerpf(veh_node.rotation.x, pitch, 1.0 - exp(-8.0 * delta))
 	if rig != null:
 		if running:
 			rig.drive(self, speed, delta)
+			if veh_node != null and vehicle != "skate":
+				rig.rotation.x = veh_node.rotation.x
 		elif veh_node != null:
 			rig.ride_pose(vehicle, veh_node, 0.0, 0.0, delta)
 			rig.rotation.y = 1.45 if vehicle == "skate" else 0.0

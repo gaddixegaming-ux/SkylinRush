@@ -1,7 +1,7 @@
 extends Node3D
 ## Skyline Rush - game director: state, input, abilities (Q / E / double-tap
 ## SPACE), power-ups, vehicles per map, flow meter, scoring, zones, economy
-## (wallet, upgrades, garage) and game-feel (hitstop, slow-mo).
+## (wallet, upgrades, garage) and game-feel (camera kicks, flashes). No slow motion.
 
 const WorldScript := preload("res://scripts/world.gd")
 const PlayerScript := preload("res://scripts/player.gd")
@@ -41,10 +41,9 @@ const WALL_CD := 1.0
 const SLAM_CD := 3.5
 const HOOK_CD := 1.0
 
-const POWER_NAME := {"magnet": "COIN MAGNET", "shield": "SHIELD", "slowmo": "SLOW-MO", "double": "2X SCORE"}
+const POWER_NAME := {"magnet": "COIN MAGNET", "shield": "SHIELD", "springs": "SPRING SHOES", "double": "2X SCORE"}
 const VEH_ZONE := {2: "skate", 5: "hover", 8: "moto"}
 const VEH_SPEED := {"skate": 1.1, "hover": 1.18, "moto": 1.28}
-const VEH_RESPAWN := 5.0
 
 const ZONES := [
 	{"name": "SKY ROADS", "top": Color(0.42, 0.52, 0.98), "hor": Color(1.0, 0.74, 0.92), "fog": Color(0.98, 0.8, 0.96),
@@ -95,7 +94,7 @@ var ab_active: Array[float] = [0.0, 0.0, 0.0]
 var airdash_cd := 0.0
 var wall_cd := 0.0
 var slam_cd := 0.0
-var pw := {"magnet": 0.0, "shield": 0.0, "slowmo": 0.0, "double": 0.0}
+var pw := {"magnet": 0.0, "shield": 0.0, "springs": 0.0, "double": 0.0}
 var flow := 0.0
 var flow_idle := 0.0
 var flow_tier := 0
@@ -108,7 +107,6 @@ var portal_boost := 0.0
 var dead_timer := 0.0
 var death_title := ""
 var new_best := false
-var slowmo_left := 0.0
 var curve := Vector2(0.0008, -0.0004)
 var curve_target := Vector2.ZERO
 var curve_timer := 0.0
@@ -136,11 +134,17 @@ var on_rail := false
 var revive_cost := 150
 var revive_bridge_t := 0.0
 var veh_hits := 0
-var veh_respawn_t := 0.0
+var veh_time := 0.0
+var veh_granted_zone := -1
+var skate_combo := 0
+var skate_combo_t := 0.0
 var tricking := false
 var panel := ""          # menu overlay: "", "garage", "upgrades"
 var garage_type := "skate"
 var garage_pick := {}
+var stage: Node3D
+var stage_ring: MeshInstance3D
+var stage_mats: Array = []
 
 
 # ============================================================ setup
@@ -202,6 +206,7 @@ func _ready() -> void:
 		n.process_mode = Node.PROCESS_MODE_PAUSABLE
 	zone_cur = ZONES[0].duplicate()
 	_apply_zone(zone_cur)
+	_build_stage()
 	_enter_menu()
 
 
@@ -215,20 +220,27 @@ func _build_env() -> void:
 	sky.sky_material = sky_mat
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.tonemap_exposure = 1.05
 	env.tonemap_white = 6.0
 	env.glow_enabled = true
-	env.glow_intensity = 0.9
+	env.glow_intensity = 0.65
 	env.glow_strength = 1.0
 	env.glow_bloom = 0.06
-	env.glow_hdr_threshold = 0.95
+	env.glow_hdr_threshold = 1.25
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
+	# depth fog: clear up close, only fades the far distance (hides pop-in)
 	env.fog_enabled = true
-	env.fog_density = 0.011
-	env.fog_aerial_perspective = 0.3
-	env.fog_sky_affect = 0.25
+	env.fog_mode = Environment.FOG_MODE_DEPTH
+	env.fog_density = 0.9
+	env.fog_depth_begin = 110.0
+	env.fog_depth_end = 245.0
+	env.fog_depth_curve = 1.6
+	env.fog_aerial_perspective = 0.1
+	env.fog_sky_affect = 0.15
 	env.ssao_enabled = true
-	env.ssao_intensity = 1.2
+	env.ssao_intensity = 1.0
+	env.ssao_radius = 0.8
 	env.adjustment_enabled = true
 	env.adjustment_saturation = 1.12
 	env.adjustment_contrast = 1.06
@@ -239,7 +251,8 @@ func _build_env() -> void:
 	sun = DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-42, -35, 0)
 	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 80.0
+	sun.directional_shadow_max_distance = 60.0
+	sun.shadow_blur = 1.5
 	add_child(sun)
 	var fill := DirectionalLight3D.new()
 	fill.rotation_degrees = Vector3(-20, 150, 0)
@@ -272,6 +285,102 @@ func _build_env() -> void:
 	stars.material_override = stars_mat
 	stars.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(stars)
+
+
+## Menu showroom: glossy floor with a neon grid, a podium with a glowing ring,
+## a curved wall of LED panels, spotlights and a far city silhouette. Shown
+## instead of the live track so nothing in the menu overlaps.
+func _build_stage() -> void:
+	stage = Node3D.new()
+	add_child(stage)
+	var mat := func(c: Color, e := 0.0, rough := 0.5, metal := 0.0) -> StandardMaterial3D:
+		var m := StandardMaterial3D.new()
+		m.albedo_color = c
+		m.roughness = rough
+		m.metallic = metal
+		if e > 0.0:
+			m.emission_enabled = true
+			m.emission = c
+			m.emission_energy_multiplier = e
+		return m
+	var add := func(mesh: Mesh, pos: Vector3, m: Material, rot := Vector3.ZERO) -> MeshInstance3D:
+		var mi := MeshInstance3D.new()
+		mi.mesh = mesh
+		mi.material_override = m
+		mi.position = pos
+		mi.rotation = rot
+		stage.add_child(mi)
+		return mi
+	var cyl := func(r: float, h: float) -> CylinderMesh:
+		var c := CylinderMesh.new()
+		c.top_radius = r
+		c.bottom_radius = r
+		c.height = h
+		c.radial_segments = 48
+		return c
+	var bx := func(size: Vector3) -> BoxMesh:
+		var b := BoxMesh.new()
+		b.size = size
+		return b
+	add.call(cyl.call(40.0, 0.2), Vector3(0, -0.45, 0), mat.call(Color(0.1, 0.08, 0.16), 0.0, 0.15, 0.3))
+	for i in 21:
+		var o := -20.0 + i * 2.0
+		add.call(bx.call(Vector3(40, 0.01, 0.04)), Vector3(0, -0.34, o), mat.call(Color(0.5, 0.3, 1.0), 0.8))
+		add.call(bx.call(Vector3(0.04, 0.01, 40)), Vector3(o, -0.34, 0), mat.call(Color(0.5, 0.3, 1.0), 0.8))
+	add.call(cyl.call(2.7, 0.3), Vector3(0, -0.2, 0), mat.call(Color(0.18, 0.16, 0.24), 0.0, 0.3, 0.6))
+	add.call(cyl.call(2.45, 0.06), Vector3(0, -0.03, 0), mat.call(Color(0.32, 0.3, 0.42), 0.0, 0.35, 0.3))
+	var tm := TorusMesh.new()
+	tm.inner_radius = 2.62
+	tm.outer_radius = 2.78
+	tm.rings = 64
+	stage_ring = add.call(tm, Vector3(0, -0.05, 0), mat.call(Color(1.0, 0.35, 0.75), 3.0))
+	var tm2 := TorusMesh.new()
+	tm2.inner_radius = 2.3
+	tm2.outer_radius = 2.36
+	tm2.rings = 64
+	add.call(tm2, Vector3(0, 0.0, 0), mat.call(Color(0.35, 0.9, 1.0), 2.5))
+	# curved LED wall behind the runner (camera looks from ~2.2 rad)
+	var back := 2.2 + PI
+	for k in 11:
+		var a := back + (k - 5) * 0.2
+		var p := Vector3(sin(a) * 9.0, 2.6, cos(a) * 9.0)
+		var panel: MeshInstance3D = add.call(bx.call(Vector3(1.7, 6.0, 0.3)), p, mat.call(Color(0.12, 0.1, 0.2), 0.0, 0.3, 0.4), Vector3(0, a, 0))
+		var c: Color = [Color(1.0, 0.35, 0.75), Color(0.35, 0.9, 1.0), Color(0.6, 0.45, 1.0)][k % 3]
+		var m2: StandardMaterial3D = mat.call(c, 1.2)
+		stage_mats.append(m2)
+		var screen: MeshInstance3D = add.call(bx.call(Vector3(1.45, 4.8, 0.05)), p - Vector3(sin(a), 0, cos(a)) * 0.18, m2, Vector3(0, a, 0))
+		screen.set_meta("k", k)
+		add.call(bx.call(Vector3(1.75, 0.08, 0.35)), p + Vector3(0, 3.0, 0), mat.call(Color(1, 1, 1), 2.0), Vector3(0, a, 0))
+	# far skyline
+	for k in 40:
+		var a := back + randf_range(-1.6, 1.6)
+		var d := randf_range(28.0, 36.0)
+		var h := randf_range(6.0, 22.0)
+		add.call(bx.call(Vector3(randf_range(3, 6), h, randf_range(3, 6))), Vector3(sin(a) * d, h * 0.5 - 0.4, cos(a) * d), mat.call(Color(0.16, 0.12, 0.26), 0.0), Vector3(0, a, 0))
+		for f in int(h / 3.0):
+			if randf() < 0.5:
+				add.call(bx.call(Vector3(0.5, 0.35, 0.05)), Vector3(sin(a) * (d - 2.6), 1.5 + f * 3.0, cos(a) * (d - 2.6)) + Vector3(cos(a), 0, -sin(a)) * randf_range(-1.5, 1.5), mat.call(Color(1.0, 0.8, 0.5), 2.0), Vector3(0, a, 0))
+	# spotlights on the podium
+	for k in 3:
+		var sl := SpotLight3D.new()
+		var a := 2.2 + (k - 1) * 1.1
+		sl.position = Vector3(sin(a) * 5.0, 7.0, cos(a) * 5.0)
+		stage.add_child(sl)
+		sl.look_at(Vector3(0, 0.5, 0))
+		sl.spot_angle = 22.0
+		sl.spot_range = 14.0
+		sl.light_energy = 1.3
+		sl.light_color = [Color(1.0, 0.85, 0.95), Color(0.8, 0.9, 1.0), Color(1.0, 0.9, 0.8)][k]
+		sl.shadow_enabled = k == 1
+	stage.visible = false
+
+
+func _animate_stage(delta: float) -> void:
+	var t := Time.get_ticks_msec() * 0.001
+	for i in stage_mats.size():
+		var m: StandardMaterial3D = stage_mats[i]
+		m.emission_energy_multiplier = 0.6 + 0.8 * (0.5 + 0.5 * sin(t * 2.0 + i * 0.7)) + beat * 0.8
+	stage_ring.rotation.y += delta * 0.3
 
 
 func _build_speed_lines() -> void:
@@ -314,8 +423,7 @@ func _build_weather() -> void:
 
 
 func _set_weather(kind: String, wet: bool) -> void:
-	env.ssr_enabled = wet
-	env.ssr_max_steps = 48
+	env.ssr_enabled = false  # too costly for the rain alley
 	weather.emitting = false
 	if kind == "none":
 		return
@@ -328,7 +436,7 @@ func _set_weather(kind: String, wet: bool) -> void:
 	match kind:
 		"rain":
 			bm.size = Vector3(0.025, 0.9, 0.025)
-			weather.amount = 700
+			weather.amount = 320
 			weather.lifetime = 0.55
 			weather.position = Vector3(0, 9.0, -9.0)
 			weather.emission_box_extents = Vector3(16, 1, 14)
@@ -516,6 +624,8 @@ func _enter_menu() -> void:
 	Engine.time_scale = 1.0
 	state = State.MENU
 	panel = ""
+	stage.visible = true
+	world.visible = false
 	world.speed = MENU_SPEED
 	world.theme = start_zone
 	world.reset(false)
@@ -528,6 +638,7 @@ func _enter_menu() -> void:
 		player.set_character(char_idx)
 	player.set_props(true)
 	hud.show_menu(prog.best, prog.wallet)
+	hud.set_upgrade_summary(_upgrade_data())
 	_show_char()
 	_show_track()
 
@@ -587,7 +698,6 @@ func _start_game() -> void:
 	_bank()
 	get_tree().paused = false
 	Engine.time_scale = 1.0
-	slowmo_left = 0.0
 	var from_menu := state == State.MENU
 	panel = ""
 	hud.show_panel("", {})
@@ -607,7 +717,8 @@ func _start_game() -> void:
 	new_best = false
 	revive_cost = 150
 	revive_bridge_t = 0.0
-	veh_respawn_t = 0.0
+	veh_granted_zone = -1
+	skate_combo = 0
 	tricking = false
 	world.speed = speed
 	world.difficulty = 0.0
@@ -624,6 +735,8 @@ func _start_game() -> void:
 	_snap_zone(start_zone)
 	player.set_props(false)
 	state = State.PLAYING
+	stage.visible = false
+	world.visible = true
 	hud.show_game()
 	hud.zone_banner(ZONES[start_zone]["name"], "TRACK  %d" % (start_zone + 1))
 	hud.popup("GO!", CYAN, 70)
@@ -658,8 +771,6 @@ func _crash(title: String, from_fall := false) -> void:
 	audio.play("crash")
 	audio.set_muffled(true)
 	hud.flash(Color(1.0, 0.3, 0.5), 0.55)
-	Engine.time_scale = 0.3
-	slowmo_left = 0.8
 	_clear_abilities()
 	hud.set_markers([])
 	hud.set_prompt("")
@@ -746,6 +857,7 @@ func _buy_upgrade(id: String) -> void:
 	else:
 		audio.play("deny")
 	hud.show_panel("upgrades", _upgrade_data())
+	hud.set_upgrade_summary(_upgrade_data())
 	hud.set_wallet(prog.wallet)
 
 
@@ -762,10 +874,6 @@ func _upgrade_data() -> Dictionary:
 # ============================================================ main loop
 func _process(delta: float) -> void:
 	delta = minf(delta, 0.05)
-	if slowmo_left > 0.0:
-		slowmo_left -= delta / maxf(Engine.time_scale, 0.01)
-		if slowmo_left <= 0.0:
-			Engine.time_scale = 1.0
 	if state == State.PAUSED:
 		return
 
@@ -775,13 +883,11 @@ func _process(delta: float) -> void:
 
 	match state:
 		State.MENU:
-			# the fox jogs through the track preview; characters chill in their lobby
-			var lobby: bool = char_idx != 0 or panel == "garage"
-			var ms := 0.0 if lobby else MENU_SPEED
-			world.scroll(ms * delta)
+			# every runner shows off on the showroom podium
 			player.floor_y = 0.0
-			player.tick(delta, ms, not lobby)
-			fx.tick(delta, ms * delta)
+			player.tick(delta, 0.0, false)
+			fx.tick(delta, 0.0)
+			_animate_stage(delta)
 		State.PLAYING:
 			_play_step(delta)
 		State.DEAD:
@@ -824,7 +930,8 @@ func _play_step(delta: float) -> void:
 	_update_traps(delta, dz / maxf(delta, 0.001))
 	revive_bridge_t = maxf(0.0, revive_bridge_t - delta)
 	_update_vehicle_zone(false)
-	_move_drones(delta * (0.45 if pw["slowmo"] > 0.0 else 1.0))
+	_move_drones(delta)
+	player.jump_mult = 1.3 if pw["springs"] > 0.0 else 1.0
 
 	# wall run bookkeeping
 	if wall_active:
@@ -845,6 +952,9 @@ func _play_step(delta: float) -> void:
 	_update_grind(delta)
 	if player.grounded:
 		dashjump_carry = false
+		skate_combo_t -= delta
+		if skate_combo_t <= 0.0:
+			skate_combo = 0
 	if player.position.y < -4.0:
 		_crash("FELL INTO THE GAP", true)
 		return
@@ -894,16 +1004,15 @@ func _update_hud_state() -> void:
 	ab.append({"ready": ab_cd[SKY] <= 0.0, "cd_ratio": ab_cd[SKY] / sky_cd, "cd_left": ab_cd[SKY], "active_ratio": 0.0, "label": "SKY JUMP"})
 
 	var powers := []
-	for id in ["magnet", "shield", "slowmo", "double"]:
+	for id in ["magnet", "shield", "springs", "double"]:
 		if pw[id] > 0.0:
 			powers.append({"id": id, "name": POWER_NAME[id], "t": pw[id], "max": prog.value(id), "color": world.POWER_COL[id]})
 	var veh = null
 	var vt: String = VEH_ZONE.get(zone_idx, "")
 	if player.vehicle != "":
 		veh = {"type": player.vehicle, "name": VehScript.TYPE_NAME[player.vehicle] + "  ·  " + VehScript.variant_name(player.vehicle, player.veh_variant),
-			"hits": veh_hits, "max": int(prog.value("armor")), "respawn": 0.0}
-	elif vt != "" and veh_respawn_t > 0.0:
-		veh = {"type": vt, "name": VehScript.TYPE_NAME[vt] + "  REBUILDING", "hits": 0, "max": int(prog.value("armor")), "respawn": veh_respawn_t}
+			"hits": veh_hits, "max": int(prog.value("armor")), "time": veh_time, "time_max": prog.value("ride")}
+
 	var zprog := clampf((distance - zone_start) / ZONE_LEN, 0.0, 1.0)
 	hud.update_hud({
 		"score": int(score), "dist": int(distance), "mult": _score_mult(), "coins": gold,
@@ -1011,6 +1120,9 @@ func _check_objects(delta: float) -> void:
 		elif kind == "power":
 			if obj.position.distance_to(pc) < 1.6:
 				_gain_power(obj)
+		elif kind == "vehicle":
+			if obj.position.distance_to(pc) < 1.8:
+				_gain_vehicle(obj)
 		elif kind == "portal":
 			if not obj.get_meta("hit") and obj.position.z > 0.0:
 				obj.set_meta("hit", true)
@@ -1069,10 +1181,9 @@ func _gain_power(obj: Node3D) -> void:
 	pw[t] = prog.value(t)
 	hud.popup("%s  %ds" % [POWER_NAME[t], int(pw[t])], c, 40)
 	match t:
-		"slowmo":
-			audio.play("warp")
-			audio.set_warp(true)
-			hud.flash(Color(0.6, 0.6, 1.0), 0.3)
+		"springs":
+			audio.play("djump", 1.3)
+			hud.flash(Color(0.4, 1.0, 0.6), 0.2)
 		"shield":
 			audio.play("shield")
 		"magnet":
@@ -1086,14 +1197,12 @@ func _tick_powers(delta: float) -> void:
 			pw[id] = maxf(0.0, pw[id] - delta)
 			if pw[id] == 0.0:
 				hud.popup(POWER_NAME[id] + "  OVER", Color(0.8, 0.78, 0.9), 28)
-				if id == "slowmo":
-					audio.set_warp(false)
 				_update_power_visuals()
 
 
 func _update_power_visuals() -> void:
 	var list := []
-	for id in ["magnet", "slowmo", "double"]:
+	for id in ["magnet", "springs", "double"]:
 		if pw[id] > 0.0:
 			list.append(id)
 	player.set_cores(list)
@@ -1110,7 +1219,6 @@ func _check_close_call(obj: Node3D) -> void:
 		hud.popup("CLOSE CALL!  +%d" % pts, CYAN, 42)
 		audio.play("close")
 		cam.punch_fov(5.0)
-		_slowmo(0.45, 0.16)
 
 
 func _portal() -> void:
@@ -1171,7 +1279,6 @@ func _on_hit(obj: Node3D, kind: String) -> void:
 			fx.burst(player.position + Vector3(0, 0.6, 0), Color(1, 0.6, 0.3), 18, 9.0, 0.2, 0.7)
 			var nm: String = VehScript.TYPE_NAME[player.vehicle]
 			player.set_vehicle("")
-			veh_respawn_t = VEH_RESPAWN
 			hud.flash(Color(1, 0.5, 0.3), 0.35)
 			hud.popup(nm + " WRECKED  -  YOU'RE OK!", Color(1, 0.6, 0.35), 40)
 		else:
@@ -1192,6 +1299,12 @@ func _on_hit(obj: Node3D, kind: String) -> void:
 		audio.play("stumble")
 		flow *= 0.5
 		return
+	# bounce back off the obstacle so the fall never clips into it
+	var box: AABB = obj.get_meta("box")
+	var front: float = obj.position.z + box.end.z
+	if front > -1.6:
+		world.scroll(-(front + 1.6))
+		fx.tick(0.0, -(front + 1.6))
 	_crash("WIPED OUT")
 
 
@@ -1444,30 +1557,74 @@ func _slam_impact() -> void:
 
 
 # ============================================================ vehicles
-## Mounts the equipped vehicle in its map (skate park / harbor / highway) and
-## takes it away elsewhere. A wrecked ride is rebuilt after a few seconds.
+## Vehicles are timed arcade rides: entering a vehicle map gives you your
+## garage ride once; it lasts RIDE TIME seconds (upgradable) or until it is
+## wrecked. Ride tokens on the track refill it / put you back on.
 func _update_vehicle_zone(instant: bool) -> void:
 	var want: String = VEH_ZONE.get(zone_idx, "")
-	if veh_respawn_t > 0.0:
-		veh_respawn_t = maxf(0.0, veh_respawn_t - get_process_delta_time())
 	if want == "":
 		if player.vehicle != "":
-			fx.burst(player.position + Vector3(0, 0.6, 0), Color(0.8, 0.9, 1.0), 12, 6.0, 0.15, 0.4, 0.0)
-			player.set_vehicle("")
-			hud.popup("ON FOOT", Color(0.85, 0.85, 1.0), 30)
-		veh_respawn_t = 0.0
+			_dismount("ON FOOT")
+		veh_granted_zone = -1
 		return
-	if player.vehicle == want or veh_respawn_t > 0.0 or player.is_grappling() or player.wall_side != 0 or player.is_tricking():
+	if player.vehicle != "":
+		veh_time -= get_process_delta_time()
+		if veh_time <= 0.0:
+			_dismount("RIDE OVER  -  grab a ride token!")
 		return
-	var variant: int = prog.equipped[want]
-	player.set_vehicle(want, variant)
+	if veh_granted_zone != zone_idx and _can_mount():
+		veh_granted_zone = zone_idx
+		_mount(want, instant)
+
+
+func _can_mount() -> bool:
+	return not (player.is_grappling() or player.wall_side != 0 or player.is_tricking())
+
+
+func _mount(type: String, instant := false) -> void:
+	var variant: int = prog.equipped[type]
+	player.set_vehicle(type, variant)
 	veh_hits = int(prog.value("armor"))
+	veh_time = prog.value("ride")
+	skate_combo = 0
 	fx.burst(player.position + Vector3(0, 0.6, 0), ThemesScript.ACCENT[zone_idx], 16, 7.0, 0.16, 0.5, 0.0)
 	fx.ring(player.position + Vector3(0, 0.3, 0), ThemesScript.ACCENT[zone_idx], 3.0, 0.4, 0.0, true)
 	if not instant:
 		cam.punch_fov(8.0)
 	audio.play("orb", 0.8)
-	hud.popup("%s  ·  %s" % [VehScript.TYPE_NAME[want], VehScript.variant_name(want, variant)], ThemesScript.ACCENT[zone_idx], 40)
+	hud.popup("%s  ·  %s" % [VehScript.TYPE_NAME[type], VehScript.variant_name(type, variant)], ThemesScript.ACCENT[zone_idx], 40)
+
+
+func _dismount(msg: String) -> void:
+	fx.burst(player.position + Vector3(0, 0.6, 0), Color(0.8, 0.9, 1.0), 12, 6.0, 0.15, 0.4, 0.0)
+	player.set_vehicle("")
+	hud.popup(msg, Color(0.85, 0.85, 1.0), 30)
+
+
+func _gain_vehicle(obj: Node3D) -> void:
+	var t: String = obj.get_meta("vtype")
+	obj.queue_free()
+	fx.burst(obj.position, ThemesScript.ACCENT[zone_idx], 14, 7.0, 0.16, 0.5, 0.0)
+	if player.vehicle == t:
+		veh_time = prog.value("ride")
+		veh_hits = int(prog.value("armor"))
+		audio.play("orb", 1.2)
+		hud.popup("RIDE REFILLED  ·  %ds" % int(veh_time), ThemesScript.ACCENT[zone_idx], 36)
+	elif _can_mount():
+		_mount(t)
+
+
+## Skateboard tricks on every jump: named trick + combo multiplier.
+func _skate_trick() -> void:
+	skate_combo += 1
+	skate_combo_t = 2.5
+	var pts: int = 40 * skate_combo * _score_mult()
+	score += pts
+	_add_flow(6.0 + skate_combo)
+	var txt: String = player.board_trick
+	if skate_combo > 1:
+		txt += "   x%d COMBO" % skate_combo
+	hud.popup("%s  +%d" % [txt, pts], Color(1.0, 0.55, 0.85), 38 + mini(skate_combo, 5) * 2)
 
 
 # ============================================================ skate park + traps
@@ -1536,7 +1693,6 @@ func _revive() -> void:
 				and obj.position.z > -45.0:
 			world.smash(obj, fx)
 	Engine.time_scale = 1.0
-	slowmo_left = 0.0
 	player.revive()
 	revive_bridge_t = 2.5
 	grace = 2.5
@@ -1547,7 +1703,6 @@ func _revive() -> void:
 	hud.flash(Color(1, 0.85, 0.4), 0.6)
 	hud.popup("REVIVED!", GOLD, 60)
 	audio.play("overdrive")
-	veh_respawn_t = 1.0
 
 
 # ============================================================ flow meter
@@ -1580,8 +1735,6 @@ func _speed_mult() -> float:
 		m *= 1.6
 	if dashjump_carry:
 		m *= 1.3
-	if pw["slowmo"] > 0.0:
-		m *= 0.55
 	if portal_boost > 0.0:
 		m *= 1.25
 	if warp_t > 0.0:
@@ -1609,8 +1762,6 @@ func _extra_fov() -> float:
 	if state == State.PLAYING:
 		if ab_active[DASH] > 0.0:
 			f += 14.0
-		if pw["slowmo"] > 0.0:
-			f -= 5.0
 		if portal_boost > 0.0:
 			f += 6.0
 		if warp_t > 0.0:
@@ -1633,7 +1784,7 @@ func _cam_state() -> Dictionary:
 		"wall": player.wall_side,
 		"grapple": gp,
 		"slam": player.slamming and player.vy < 0.0,
-		"shift": pw["slowmo"] > 0.0,
+		"shift": false,
 		"phase": false,
 		"flow": flow / 100.0,
 		"air": not player.grounded,
@@ -1642,16 +1793,9 @@ func _cam_state() -> Dictionary:
 	}
 
 
+## Impacts used to freeze time for a moment; now they only shake the camera.
 func _hitstop(d: float) -> void:
-	if Engine.time_scale >= 0.99:
-		Engine.time_scale = 0.05
-		slowmo_left = d
-
-
-func _slowmo(scale: float, d: float) -> void:
-	if Engine.time_scale >= 0.99:
-		Engine.time_scale = scale
-		slowmo_left = d
+	cam.add_trauma(d * 1.5)
 
 
 # ============================================================ visuals
@@ -1721,8 +1865,9 @@ func _tick_warp(delta: float) -> void:
 		warped = true
 		hud.flash(Color.WHITE, 1.2)
 		world.theme = warp_target
-		world.reset(true)
+		world.reset(true, 140.0)  # clear run-in after a warp
 		zone_start = distance
+		veh_granted_zone = -1
 		_snap_zone(warp_target)
 		hud.zone_banner(ZONES[warp_target]["name"], "WARPED  ·  TRACK  %d" % (warp_target + 1))
 		var pts := 300 * _score_mult()
@@ -1742,8 +1887,7 @@ func _apply_zone(z: Dictionary) -> void:
 	sun.light_color = z["sun"]
 	sun.light_energy = z["sun_e"]
 	stars_mat.albedo_color.a = z["stars"]
-	env.glow_intensity = 0.9 + float(z["stars"]) * 0.5 + float(z["plight"]) * 0.3
-	env.fog_density = z["fog_d"]
+	env.glow_intensity = 0.65 + float(z["stars"]) * 0.4 + float(z["plight"]) * 0.25
 	if player_light:
 		player_light.light_energy = z["plight"]
 
@@ -1779,7 +1923,7 @@ func _update_visual_fx(delta: float) -> void:
 			blur += 0.12 * warp_t
 			ab += 0.02 * warp_t
 		blur += maxf(0.0, sf - 0.5) * 0.04
-	var shift_t := 0.4 if (playing and pw["slowmo"] > 0.0) else 0.0
+	var shift_t := 0.0
 	shift_amount = lerpf(shift_amount, shift_t, 1.0 - exp(-6.0 * delta))
 	hud.set_post(ab, shift_amount, blur, Color(0.6, 0.8, 1.0))
 
@@ -1818,6 +1962,8 @@ func _on_jumped(kind: String) -> void:
 			_add_flow(8.0)
 		_:
 			audio.play("jump", randf_range(0.95, 1.05), -2.0)
+	if player.boarding and kind != "wall_jump":
+		_skate_trick()
 
 
 func _on_landed(impact: float, was_slam: bool) -> void:

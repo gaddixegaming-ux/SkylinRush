@@ -6,6 +6,8 @@ extends Node3D
 const WORLD_SHADER := preload("res://shaders/world.gdshader")
 const PORTAL_SHADER := preload("res://shaders/portal.gdshader")
 const BEAM_SHADER := preload("res://shaders/beam.gdshader")
+const WORLD_VC := preload("res://shaders/world_vc.gdshader")
+const BATCH_KEYS := ["box", "sphere", "cyl", "pipe", "cone"]
 const ThemesScript := preload("res://scripts/themes.gd")
 const WEAK := ["jump", "crate", "drone", "pop_spikes", "drop"]
 const SOLID := ["car", "speaker", "crate", "platform", "rail", "pop_wall", "drop"]
@@ -55,6 +57,14 @@ var big_cursor := 0.0
 
 var _mats := {}
 var _meshes := {}
+## Batching: while `batching` is on, static scenery primitives are collected and
+## merged into ONE vertex-coloured mesh per parent node (flush_batches). This
+## cuts draw calls from thousands to a few hundred.
+var batching := false
+var _pending: Array = []
+var _prim_key := {}
+var _prim_cache := {}
+var vc_mat: ShaderMaterial
 
 
 func _ready() -> void:
@@ -78,7 +88,8 @@ func _ready() -> void:
 
 
 # ============================================================ lifecycle
-func reset(with_rows: bool) -> void:
+## first_row: distance to the first obstacle row (longer after a warp).
+func reset(with_rows: bool, first_row := 45.0) -> void:
 	for c in objects.get_children():
 		c.free()
 	for c in scenery.get_children():
@@ -102,7 +113,7 @@ func reset(with_rows: bool) -> void:
 	rows_spawned = 0
 	platform_rows = 0
 	wall_rows = 0
-	row_cursor = -45.0
+	row_cursor = -first_row
 	tile_cursor = 24.0
 	pipe_cursor = 24.0
 	cloud_cursor = 30.0
@@ -164,6 +175,7 @@ func fill() -> void:
 		var gap := randf_range(16.0, 24.0) + speed * 0.35
 		gap += _spawn_row(row_cursor, gap)
 		row_cursor -= gap
+	batching = true
 	if theme != last_theme and last_theme >= 0:
 		themes.gate(SPAWN_Z, theme)
 	last_theme = theme
@@ -196,6 +208,8 @@ func fill() -> void:
 		if theme == 0:
 			_spawn_big(big_cursor)
 		big_cursor -= randf_range(45.0, 70.0)
+	batching = false
+	flush_batches()
 
 
 # ============================================================ gameplay rows
@@ -203,13 +217,14 @@ func fill() -> void:
 ## jumpable or slidable). A gold coin trail leads from the previous row's safe
 ## lane into this one, so following the coins never gets you killed.
 const TRAPS := {1: "pop_wall", 3: "pop_spikes", 4: "drop", 5: "pop_wall", 6: "pop_spikes", 7: "pop_wall", 8: "pop_spikes"}
-const POWERS := ["magnet", "shield", "slowmo", "double"]
-const POWER_COL := {"magnet": Color(1.0, 0.35, 0.4), "shield": Color(0.3, 0.9, 1.0), "slowmo": Color(0.65, 0.55, 1.0), "double": Color(1.0, 0.8, 0.2)}
+const POWERS := ["magnet", "shield", "springs", "double"]
+const POWER_COL := {"magnet": Color(1.0, 0.35, 0.4), "shield": Color(0.3, 0.9, 1.0), "springs": Color(0.4, 1.0, 0.55), "double": Color(1.0, 0.8, 0.2)}
 var safe_lane := 0
 var prev_row_z := 0.0
 var prev_safe := 0
 var board_rows := 0
 var qpipes: Array = []
+const VEH_THEME := {2: "skate", 5: "hover", 8: "moto"}
 
 
 func _spawn_row(z: float, gap: float) -> float:
@@ -336,12 +351,50 @@ func _spawn_row(z: float, gap: float) -> float:
 			cl = clampi(cl + (1 if randf() < 0.5 else -1), -1, 1)
 		if cl != new_safe:
 			_coin_line(cl, z - 5.0, z - gap * 0.55)
+	# vehicle zones: a glowing ride token every few rows gives your ride back
+	if VEH_THEME.has(theme):
+		board_rows -= 1
+		if board_rows <= 0:
+			board_rows = 9
+			_spawn_vehicle_token(new_safe, z - gap * 0.5, VEH_THEME[theme])
 	# power-ups: some in the running lane, some up high for the sky jump
 	if randf() < 0.16:
 		_spawn_power(Vector3(new_safe * LANE_WIDTH, 1.2, z - gap * 0.5), POWERS[randi() % POWERS.size()])
 	elif randf() < 0.14:
 		_spawn_power(Vector3((randi() % 3 - 1) * LANE_WIDTH, randf_range(5.0, 6.0), z - gap * 0.5), POWERS[randi() % POWERS.size()])
 	return extra
+
+
+## Floating ride token (skateboard / hover / moto icon in a ring).
+func _spawn_vehicle_token(lane: int, z: float, vtype: String) -> void:
+	var n := _obj("vehicle", lane, z, 1.0)
+	n.set_meta("vtype", vtype)
+	n.position.y = 1.3
+	var c: Color = {"skate": Color(1.0, 0.45, 0.75), "hover": Color(0.35, 0.9, 1.0), "moto": Color(1.0, 0.6, 0.2)}[vtype]
+	var icon := Node3D.new()
+	n.add_child(icon)
+	var body := mat(c.lightened(0.2), c, 1.5, 0.3, 0.3, 0.8, 0.0, Color.WHITE)
+	var wh := mat(Color(0.1, 0.1, 0.12), Color.BLACK, 0.0, 0.5)
+	match vtype:
+		"skate":
+			var d := _box(icon, Vector3(0.36, 0.06, 1.0), Vector3.ZERO, body, false)
+			d.rotation.x = 0.4
+			for wz in [-0.32, 0.32]:
+				_cyl(icon, 0.07, 0.4, Vector3(0, -0.1 - wz * 0.4, wz), mat(Color(0.3, 1.0, 0.8), Color(0.3, 1.0, 0.8), 2.0), Vector3(0, 0, PI / 2), false)
+		"hover":
+			var hb := _sphere(icon, 0.35, Vector3.ZERO, body, false)
+			hb.scale = Vector3(0.7, 0.4, 1.4)
+			_torus(icon, 0.25, 0.33, Vector3(0, -0.2, 0.3), mat(Color(0.4, 1.4, 1.8), Color(0.4, 1.0, 1.0), 3.0))
+			_torus(icon, 0.25, 0.33, Vector3(0, -0.2, -0.3), mat(Color(0.4, 1.4, 1.8), Color(0.4, 1.0, 1.0), 3.0))
+		"moto":
+			var mb := _box(icon, Vector3(0.3, 0.3, 0.9), Vector3(0, 0.1, 0), body, false)
+			mb.rotation.x = 0.1
+			for wz in [-0.42, 0.42]:
+				_cyl(icon, 0.22, 0.12, Vector3(0, -0.12, wz), wh, Vector3(0, 0, PI / 2), false)
+	spinners.append([icon, Vector3(0, 1, 0), 2.0])
+	_torus(n, 0.95, 1.05, Vector3.ZERO, mat(Color.WHITE, c, 3.0, 0.4, 0, 0, 1.0), Vector3(PI / 2, 0, 0))
+	bobbers.append([n, 1.3, 0.15, 3.0, randf() * TAU])
+	_beam(n, Vector3(0, -1.3, 0), 0.4, 6.0, c, 0.35)
 
 
 func _coin_line(lane: int, z0: float, z1: float) -> void:
@@ -573,7 +626,7 @@ func _coin(lane: int, z: float, y: float) -> Node3D:
 	n.position.y = y
 	var mi := MeshInstance3D.new()
 	mi.mesh = _mesh("coin")
-	mi.material_override = mat(Color(1.0, 0.8, 0.25), Color(1.0, 0.6, 0.1), 1.3, 0.25, 0.85, 0.7, 0.4, Color(1, 1, 0.8))
+	mi.material_override = mat(Color(1.0, 0.78, 0.2), Color(1.0, 0.6, 0.1), 0.3, 0.2, 0.9, 0.9, 0.2, Color(1, 1, 0.8))
 	mi.rotation.x = PI / 2
 	mi.extra_cull_margin = 60.0
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -938,11 +991,13 @@ func _spawn_power(pos: Vector3, ptype: String) -> void:
 			var sh := _sphere(icon, 0.45, Vector3.ZERO, m, false)
 			sh.scale = Vector3(0.42, 0.52, 0.16)
 			_box(icon, Vector3(0.08, 0.5, 0.2), Vector3(0, 0, 0), wm, false)
-		"slowmo":
-			_torus(icon, 0.36, 0.46, Vector3.ZERO, m, Vector3(PI / 2, 0, 0))
-			_box(icon, Vector3(0.07, 0.3, 0.07), Vector3(0, 0.12, 0), wm, false)
-			var hand := _box(icon, Vector3(0.07, 0.22, 0.07), Vector3(0.08, 0.02, 0), wm, false)
-			hand.rotation.z = -1.1
+		"springs":
+			# a sneaker on a coil spring
+			_box(icon, Vector3(0.5, 0.2, 0.28), Vector3(0.05, 0.22, 0), m, false)
+			_box(icon, Vector3(0.24, 0.28, 0.28), Vector3(-0.1, 0.42, 0), m, false)
+			_box(icon, Vector3(0.52, 0.06, 0.3), Vector3(0.05, 0.1, 0), wm, false)
+			for k in 3:
+				_torus(icon, 0.1, 0.16, Vector3(0.05, -0.05 - k * 0.12, 0), wm)
 		"double":
 			var g := _mi(icon, _mesh("gem"), Vector3.ZERO, m, false)
 			g.scale = Vector3(0.4, 0.5, 0.4)
@@ -1058,33 +1113,35 @@ func _spawn_tunnel(z: float, lane: int) -> void:
 	n.set_meta("hit", false)
 	var a: Color = ThemesScript.ACCENT[target]
 	var shell := mat(Color(0.14, 0.1, 0.2), Color.BLACK, 0.0, 0.4, 0.5, 0.35, 0.0, a)
-	var cy := 1.2
+	# sized to fit inside its own lane (1.25 m each side) so it never covers
+	# the middle road
+	var cy := 1.35
 	for i in 6:
 		var zz := -i * 2.4
-		_torus(n, 1.75, 2.05, Vector3(0, cy, zz), mat(Color(0.9, 0.9, 1.0), a if i % 2 == 0 else CYAN, 3.0, 0.3, 0.2, 0.0, 1.5), Vector3(PI / 2, 0, 0))
-		for k in 7:
-			var ang := PI * k / 6.0 - 0.15
-			var p := Vector3(cos(ang) * 2.25, cy + sin(ang) * 2.25, zz - 1.2)
-			var rib := _box(n, Vector3(0.3, 1.2, 2.3), p, shell, false)
+		_torus(n, 1.02, 1.18, Vector3(0, cy, zz), mat(Color(0.9, 0.9, 1.0), a if i % 2 == 0 else CYAN, 3.0, 0.3, 0.2, 0.0, 1.5), Vector3(PI / 2, 0, 0))
+		for k in 5:
+			var ang := PI * k / 4.0
+			var p := Vector3(cos(ang) * 1.18, cy + sin(ang) * 1.18, zz - 1.2)
+			var rib := _box(n, Vector3(0.14, 0.6, 2.3), p, shell, false)
 			rib.rotation = Vector3(0, 0, ang)
 	for sd in [-1.0, 1.0]:
-		_box(n, Vector3(0.35, cy + 0.2, 14.0), Vector3(sd * 2.2, (cy + 0.2) * 0.5, -6.0), shell, false)
+		_box(n, Vector3(0.16, cy, 14.0), Vector3(sd * 1.12, cy * 0.5, -6.0), shell, false)
 	var q := MeshInstance3D.new()
 	var qm := QuadMesh.new()
-	qm.size = Vector2(4.0, 4.0)
+	qm.size = Vector2(2.3, 2.3)
 	q.mesh = qm
 	var pm := ShaderMaterial.new()
 	pm.shader = PORTAL_SHADER
 	pm.set_shader_parameter("color", a)
 	pm.set_shader_parameter("strength", 0.7)
 	q.material_override = pm
-	q.position = Vector3(0, cy + 0.3, -0.3)
+	q.position = Vector3(0, cy, -0.3)
 	q.extra_cull_margin = 60.0
 	q.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	n.add_child(q)
 	# sign post: floating accent sign above the entrance
-	_box(n, Vector3(3.2, 0.9, 0.2), Vector3(0, 4.3, 0.2), mat(Color(0.1, 0.08, 0.14), a, 0.5), false)
-	_box(n, Vector3(2.9, 0.6, 0.05), Vector3(0, 4.3, 0.32), mat(a, a, 3.0, 0.4, 0, 0, 1.0), false)
+	_box(n, Vector3(2.2, 0.8, 0.2), Vector3(0, 3.4, 0.2), mat(Color(0.1, 0.08, 0.14), a, 0.5), false)
+	_box(n, Vector3(2.0, 0.55, 0.05), Vector3(0, 3.4, 0.32), mat(a, a, 3.0, 0.4, 0, 0, 1.0), false)
 	for i in 3:
 		var c1 := _box(n, Vector3(0.9, 0.04, 0.22), Vector3(-0.32, 0.03, 7.0 - i * 2.0), mat(a, a, 3.0, 0.4, 0, 0, 1.5), false)
 		c1.rotation.y = -0.6
@@ -1100,6 +1157,14 @@ func _spawn_qpipe(z_start: float, side: int, length: float) -> void:
 	var n := _obj("qpipe", 0, z_start - length * 0.5, length * 0.5)
 	n.set_meta("side", side)
 	qpipes.append(n)
+	var was := batching
+	batching = true
+	_build_qpipe(n, side, length)
+	batching = was
+	flush_batches()
+
+
+func _build_qpipe(n: Node3D, side: int, length: float) -> void:
 	var sd := float(side)
 	var r := 3.0
 	var edge := 4.45
@@ -1313,6 +1378,10 @@ func mat(albedo: Color, emission := Color(0, 0, 0), energy := 0.0, rough := 0.7,
 	m.set_shader_parameter("rim_strength", rim)
 	m.set_shader_parameter("beat_pulse", pulse)
 	m.set_shader_parameter("rim_color", rim_col)
+	var glow := energy > 0.45 and emission.get_luminance() > 0.02
+	var vcol := (emission if glow else albedo).srgb_to_linear()
+	vcol.a = clampf(energy / 8.0, 0.0, 1.0) if glow else 0.0
+	m.set_meta("vc", [vcol, rough, metal, pulse])
 	_mats[key] = m
 	return m
 
@@ -1380,12 +1449,19 @@ func _mesh(key: String) -> Mesh:
 			cn.radial_segments = 20
 			m = cn
 	_meshes[key] = m
+	if key in BATCH_KEYS:
+		_prim_key[m] = key
 	return m
 
 
 func _mi(parent: Node3D, mesh: Mesh, pos: Vector3, m: Material, shadow := true) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
+	if batching and m != null and _prim_key.has(mesh) and m.has_meta("vc"):
+		# collected now, merged in flush_batches()
+		mi.position = pos
+		_pending.append([parent, mi, m, shadow])
+		return mi
 	mi.material_override = m
 	mi.position = pos
 	mi.extra_cull_margin = 60.0
@@ -1393,6 +1469,93 @@ func _mi(parent: Node3D, mesh: Mesh, pos: Vector3, m: Material, shadow := true) 
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(mi)
 	return mi
+
+
+## Low-poly copies of the primitives for merged scenery: [verts, normals, indices].
+func _prim(mesh: Mesh) -> Array:
+	var key: String = _prim_key[mesh]
+	if _prim_cache.has(key):
+		return _prim_cache[key]
+	var src := mesh
+	if key == "sphere":
+		var sm := SphereMesh.new()
+		sm.radius = 1.0
+		sm.height = 2.0
+		sm.radial_segments = 14
+		sm.rings = 7
+		src = sm
+	elif key == "cyl" or key == "pipe":
+		var cm := CylinderMesh.new()
+		cm.top_radius = 1.0
+		cm.bottom_radius = 1.0
+		cm.height = 1.0
+		cm.radial_segments = 12
+		cm.rings = 1
+		src = cm
+	var a := src.surface_get_arrays(0)
+	var out := [a[Mesh.ARRAY_VERTEX], a[Mesh.ARRAY_NORMAL], a[Mesh.ARRAY_INDEX]]
+	_prim_cache[key] = out
+	return out
+
+
+func flush_batches() -> void:
+	if _pending.is_empty():
+		return
+	if vc_mat == null:
+		vc_mat = ShaderMaterial.new()
+		vc_mat.shader = WORLD_VC
+	var groups := {}
+	for e in _pending:
+		var p: Node3D = e[0]
+		var mi: MeshInstance3D = e[1]
+		if not is_instance_valid(p):
+			mi.free()
+			continue
+		var g: Array = groups.get(p, [])
+		if g.is_empty():
+			g = [PackedVector3Array(), PackedVector3Array(), PackedColorArray(), PackedVector2Array(), PackedVector2Array(), PackedInt32Array(), false]
+			groups[p] = g
+		var arr := _prim(mi.mesh)
+		var t: Transform3D = mi.transform
+		var nb := t.basis.inverse().transposed()
+		var vc: Array = (e[2] as Material).get_meta("vc")
+		var col: Color = vc[0]
+		var uv := Vector2(vc[3], 0.0)
+		var uv2 := Vector2(vc[1], vc[2])
+		var verts: PackedVector3Array = arr[0]
+		var norms: PackedVector3Array = arr[1]
+		var base: int = g[0].size()
+		for k in verts.size():
+			g[0].append(t * verts[k])
+			g[1].append((nb * norms[k]).normalized())
+			g[2].append(col)
+			g[3].append(uv)
+			g[4].append(uv2)
+		for k in arr[2]:
+			g[5].append(base + k)
+		if e[3]:
+			g[6] = true
+		mi.free()
+	_pending.clear()
+	for p in groups:
+		var g: Array = groups[p]
+		var a := []
+		a.resize(Mesh.ARRAY_MAX)
+		a[Mesh.ARRAY_VERTEX] = g[0]
+		a[Mesh.ARRAY_NORMAL] = g[1]
+		a[Mesh.ARRAY_COLOR] = g[2]
+		a[Mesh.ARRAY_TEX_UV] = g[3]
+		a[Mesh.ARRAY_TEX_UV2] = g[4]
+		a[Mesh.ARRAY_INDEX] = g[5]
+		var am := ArrayMesh.new()
+		am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, a)
+		var bm := MeshInstance3D.new()
+		bm.mesh = am
+		bm.material_override = vc_mat
+		bm.extra_cull_margin = 60.0
+		if not g[6]:
+			bm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		(p as Node3D).add_child(bm)
 
 
 func _box(parent: Node3D, size: Vector3, pos: Vector3, m: Material, shadow := true, _unused := false) -> MeshInstance3D:
