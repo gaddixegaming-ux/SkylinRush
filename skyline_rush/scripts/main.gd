@@ -214,12 +214,24 @@ func _ready() -> void:
 		n.process_mode = Node.PROCESS_MODE_PAUSABLE
 	zone_cur = ZONES[0].duplicate()
 	_apply_zone(zone_cur)
+	_native_display()
 	_build_stage()
 	lobby = LobbyScript.new()
 	add_child(lobby)
 	lobby.setup(world.themes)
 	_enter_menu()
 	_show_splash()
+
+
+## Fullscreen at the monitor's native resolution; the 3D view renders 1:1
+## with the screen's pixels (no upscaling) and the UI scales to fit.
+func _native_display() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+	var vp := get_viewport()
+	vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+	vp.scaling_3d_scale = 1.0
 
 
 ## Studio splash: the Chaos Games card fades out over the menu (any key skips).
@@ -576,7 +588,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("fullscreen"):
 		var fs := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
-		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if fs else DisplayServer.WINDOW_MODE_FULLSCREEN)
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MAXIMIZED if fs else DisplayServer.WINDOW_MODE_FULLSCREEN)
 		return
 	if event.is_action_pressed("music"):
 		audio.toggle_music()

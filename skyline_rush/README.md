@@ -37,7 +37,7 @@ Open Godot 4.3 or newer → Import → choose `project.godot` → press F5.
 - **Run animation:** slower, and synced to the running speed.
 - **Wall run:** a Prince-of-Persia style wall run. The runner is tilted onto the wall with a fast stride and throws dust.
 - **Moto / hover power-slide:** press **S** while riding to lay the bike down and skid under obstacles. The moto throws sparks.
-- **Fullscreen by default** (F11 toggles it).
+- **Fullscreen at native resolution:** the game runs at your monitor's own resolution, and the 3D view renders 1:1 with no upscaling. F11 toggles fullscreen / maximized window.
 - **Chaos Games splash screen** at boot. Press any key or click to skip.
 
 ## What's new in v7
