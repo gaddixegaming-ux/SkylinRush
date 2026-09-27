@@ -204,6 +204,8 @@ func _tile_harbor(n: Node3D, idx: int) -> void:
 # ============================================================ side dressing
 ## Spawns something at z on one side, returns spacing to the next one.
 func side(z: float, s: float, t: int) -> float:
+	if t in [1, 4, 6] and randf() < 0.07:
+		return plaza(z, s, t)
 	match t:
 		1: return _festival_side(z, s)
 		2: return _skate_side(z, s)
@@ -239,6 +241,7 @@ func overhead(z: float, t: int) -> float:
 
 func far(z: float, t: int) -> float:
 	var s := -1.0 if randf() < 0.5 else 1.0
+	far_extras(z - randf_range(0.0, 10.0), t)
 	match t:
 		1: _festival_far(z, s)
 		2: _skate_far(z, s)
@@ -949,6 +952,16 @@ func props(z: float, s: float, t: int) -> float:
 	if t == 8:
 		_highway_lamp(n, s)
 		return randf_range(16.0, 22.0)
+	var r2 := randf()
+	if r2 < 0.1:
+		aframe_sign(n, s, night)
+		return randf_range(5.0, 8.0)
+	elif r2 < 0.17 and t != 6:
+		pole_sign(n, s, night)
+		return randf_range(9.0, 13.0)
+	elif r2 < 0.25:
+		flower_bed(n, s)
+		return randf_range(5.0, 8.0)
 	if r < 0.36:
 		var styles := {1: [Color(1, 0.92, 0.75), Color(0.2, 0.35, 0.3)], 2: [Color(1, 0.97, 0.85), Color(0.3, 0.3, 0.35)],
 			3: [Color(1.0, 0.4, 0.8), Color(0.12, 0.12, 0.16)], 4: [Color(0.4, 0.95, 1.0), Color(0.25, 0.22, 0.3)],
@@ -1609,3 +1622,335 @@ func _roof_props(n: Node3D, s: float, dp: float, wd: float, h: float, night: boo
 		for k in 4:
 			sph(n, randf_range(0.35, 0.6), Vector3(randf_range(-dp * 0.25, dp * 0.25), h + 0.8, randf_range(-wd * 0.2, wd * 0.2)), M(pick([Color(0.3, 0.6, 0.3), Color(0.4, 0.7, 0.35), Color(1, 0.6, 0.7)]), Color.BLACK, 0, 0.9))
 		bench(n, Vector3(0, h + 0.1, -wd * 0.2), s)
+
+
+# ============================================================ v9: signs, logos, balloons, ambience
+## Fictional brands: [name, logo, main colour, accent colour]
+const BRANDS := [
+	["SKY CAFE", "cup", Color(0.55, 0.32, 0.2), Color(1.0, 0.85, 0.6)],
+	["BURGER BLAST", "burger", Color(0.95, 0.35, 0.15), Color(1.0, 0.85, 0.25)],
+	["PIZZA ORBIT", "pizza", Color(0.9, 0.2, 0.2), Color(1.0, 0.8, 0.3)],
+	["NEON BEATS", "note", Color(0.55, 0.3, 1.0), Color(0.4, 0.95, 1.0)],
+	["LOVE FM 99", "heart", Color(1.0, 0.3, 0.55), Color(1.0, 0.85, 0.9)],
+	["STAR MART", "star", Color(0.2, 0.45, 0.95), Color(1.0, 0.85, 0.2)],
+	["FROSTY", "icecream", Color(0.4, 0.8, 1.0), Color(1.0, 0.7, 0.85)],
+	["DONUT HOLE", "donut", Color(1.0, 0.55, 0.75), Color(0.6, 0.35, 0.2)],
+	["FIZZ COLA", "soda", Color(0.85, 0.1, 0.15), Color(1.0, 1.0, 1.0)],
+	["VOLT ENERGY", "bolt", Color(0.15, 0.15, 0.2), Color(0.6, 1.0, 0.2)],
+]
+const SLOGANS := ["OPEN", "SALE", "HOT", "NEW", "FRESH", "24H", "50% OFF", "WELCOME"]
+
+
+## LED pixel size so `label` fits in `width` metres.
+func _fit_px(label: String, width: float, max_px: float) -> float:
+	return minf(max_px, width / maxf(1.0, label.length() * 24.0))
+
+
+## 3D logo made of primitives, facing +Z, about `sc` metres tall, centred on pos.
+func logo(p: Node3D, kind: String, pos: Vector3, sc: float, c: Color, c2: Color, glow := 0.6) -> void:
+	var m := M(c, c, glow, 0.4, 0.1, 0.3)
+	var m2 := M(c2, c2, glow, 0.4, 0.1, 0.3)
+	var wh := M(Color(0.97, 0.96, 0.94), Color(1, 1, 1), glow * 0.5, 0.5)
+	match kind:
+		"cup":
+			cyl(p, 0.28 * sc, 0.55 * sc, pos + Vector3(0, -0.05 * sc, 0), wh)
+			cyl(p, 0.29 * sc, 0.12 * sc, pos + Vector3(0, 0.0, 0), m)
+			box(p, Vector3(0.08, 0.3, 0.08) * sc, pos + Vector3(0.33 * sc, -0.02 * sc, 0), wh)
+			box(p, Vector3(0.14, 0.06, 0.08) * sc, pos + Vector3(0.3 * sc, 0.11 * sc, 0), wh)
+			box(p, Vector3(0.14, 0.06, 0.08) * sc, pos + Vector3(0.3 * sc, -0.15 * sc, 0), wh)
+			cyl(p, 0.45 * sc, 0.05 * sc, pos + Vector3(0, -0.34 * sc, 0), wh)
+			for k in 3:
+				var st := box(p, Vector3(0.05, 0.28, 0.05) * sc, pos + Vector3((k - 1) * 0.13 * sc, 0.42 * sc, 0), m2)
+				st.rotation.z = 0.35 * (1 if k % 2 == 0 else -1)
+		"burger":
+			sph(p, 0.4 * sc, pos + Vector3(0, 0.12 * sc, 0), M(Color(0.95, 0.65, 0.25)), 0.55)
+			box(p, Vector3(0.84, 0.07, 0.84) * sc, pos + Vector3(0, -0.02 * sc, 0), M(Color(1.0, 0.8, 0.1)), false, Vector3(0, 0.78, 0))
+			cyl(p, 0.43 * sc, 0.1 * sc, pos + Vector3(0, -0.08 * sc, 0), M(Color(0.4, 0.2, 0.1)))
+			cyl(p, 0.44 * sc, 0.04 * sc, pos + Vector3(0, -0.15 * sc, 0), M(Color(0.35, 0.8, 0.25)))
+			cyl(p, 0.4 * sc, 0.12 * sc, pos + Vector3(0, -0.24 * sc, 0), M(Color(0.95, 0.65, 0.25)))
+			for k in 4:
+				sph(p, 0.03 * sc, pos + Vector3((k - 1.5) * 0.12 * sc, 0.26 * sc, 0.28 * sc), wh)
+		"pizza":
+			var wedge := cone(p, 0.42 * sc, 0.9 * sc, pos, M(Color(1.0, 0.8, 0.35)), Vector3(0, 0, PI))
+			wedge.scale.z *= 0.12
+			box(p, Vector3(0.9, 0.12, 0.12) * sc, pos + Vector3(0, 0.45 * sc, 0), M(Color(0.85, 0.55, 0.25)))
+			for pp in [Vector2(-0.12, 0.2), Vector2(0.14, 0.12), Vector2(0.0, -0.1)]:
+				cyl(p, 0.07 * sc, 0.04 * sc, pos + Vector3(pp.x * sc, pp.y * sc, 0.06 * sc), M(Color(0.8, 0.15, 0.1)), Vector3(PI / 2, 0, 0))
+		"note":
+			sph(p, 0.17 * sc, pos + Vector3(-0.12 * sc, -0.3 * sc, 0), m, 0.8)
+			box(p, Vector3(0.06, 0.7, 0.06) * sc, pos + Vector3(0.03 * sc, 0.05 * sc, 0), m)
+			box(p, Vector3(0.28, 0.08, 0.06) * sc, pos + Vector3(0.15 * sc, 0.36 * sc, 0), m, false, Vector3(0, 0, -0.4))
+		"heart":
+			sph(p, 0.22 * sc, pos + Vector3(-0.15 * sc, 0.1 * sc, 0), m)
+			sph(p, 0.22 * sc, pos + Vector3(0.15 * sc, 0.1 * sc, 0), m)
+			box(p, Vector3(0.42, 0.42, 0.3) * sc, pos + Vector3(0, -0.08 * sc, 0), m, false, Vector3(0, 0, PI / 4))
+		"star":
+			for k in 5:
+				var arm := box(p, Vector3(0.14, 0.42, 0.1) * sc, pos, m)
+				arm.rotation.z = TAU * k / 5.0
+				arm.position = pos + Vector3(-sin(TAU * k / 5.0), cos(TAU * k / 5.0), 0) * 0.2 * sc
+			sph(p, 0.14 * sc, pos, m2)
+		"icecream":
+			cone(p, 0.2 * sc, 0.55 * sc, pos + Vector3(0, -0.2 * sc, 0), M(Color(0.85, 0.6, 0.3)), Vector3(0, 0, PI))
+			sph(p, 0.2 * sc, pos + Vector3(0, 0.12 * sc, 0), m2)
+			sph(p, 0.17 * sc, pos + Vector3(0, 0.36 * sc, 0), M(Color(0.98, 0.95, 0.9)))
+			sph(p, 0.05 * sc, pos + Vector3(0, 0.55 * sc, 0), M(Color(0.9, 0.1, 0.2)))
+		"donut":
+			for k in 10:
+				var a := TAU * k / 10.0
+				sph(p, 0.14 * sc, pos + Vector3(cos(a), sin(a), 0) * 0.27 * sc, m if k % 2 == 0 else M(c.darkened(0.1)))
+			for k in 5:
+				var a2 := TAU * k / 5.0 + 0.3
+				box(p, Vector3(0.08, 0.025, 0.03) * sc, pos + Vector3(cos(a2), sin(a2), 0.9) * 0.27 * sc, m2, false, Vector3(0, 0, a2))
+		"soda":
+			cyl(p, 0.16 * sc, 0.55 * sc, pos + Vector3(0, -0.1 * sc, 0), m)
+			cone(p, 0.16 * sc, 0.2 * sc, pos + Vector3(0, 0.27 * sc, 0), m)
+			cyl(p, 0.06 * sc, 0.12 * sc, pos + Vector3(0, 0.42 * sc, 0), wh)
+			box(p, Vector3(0.34, 0.16, 0.34) * sc, pos + Vector3(0, -0.1 * sc, 0), wh)
+		"bolt":
+			box(p, Vector3(0.14, 0.5, 0.1) * sc, pos + Vector3(0.07 * sc, 0.18 * sc, 0), m2, false, Vector3(0, 0, -0.45))
+			box(p, Vector3(0.14, 0.5, 0.1) * sc, pos + Vector3(-0.07 * sc, -0.18 * sc, 0), m2, false, Vector3(0, 0, -0.45))
+			box(p, Vector3(0.36, 0.1, 0.1) * sc, pos, m2)
+
+
+## Sidewalk A-frame board: "OPEN", "SALE"... with a little logo on top.
+func aframe_sign(p: Node3D, s: float, night: bool) -> void:
+	var b: Array = pick(BRANDS)
+	var frame := M(Color(0.35, 0.22, 0.14), Color.BLACK, 0.0, 0.8)
+	var board := M(Color(0.08, 0.1, 0.09), Color.BLACK, 0.0, 0.9)
+	for zz in [-0.18, 0.18]:
+		var pn := box(p, Vector3(0.7, 1.1, 0.05), Vector3(s * 0.2, 0.55, zz), board)
+		pn.rotation.x = 0.17 * signf(zz)
+	box(p, Vector3(0.78, 0.06, 0.45), Vector3(s * 0.2, 1.1, 0), frame)
+	var sl: String = pick(SLOGANS)
+	text(p, sl, Vector3(s * 0.2, 0.75, 0.24), _fit_px(sl, 0.6, 0.011), Color(1, 1, 1), 1.5 if night else 1.0, Vector3(0.17, 0, 0))
+	logo(p, b[1], Vector3(s * 0.2, 1.42, 0), 0.5, b[2], b[3], 0.8 if night else 0.3)
+
+
+## Roadside logo sign on a pole (fast-food style), lit at night.
+func pole_sign(p: Node3D, s: float, night: bool) -> void:
+	var b: Array = pick(BRANDS)
+	var pole := M(Color(0.55, 0.57, 0.62), Color.BLACK, 0.0, 0.3, 0.7)
+	cyl(p, 0.12, 5.6, Vector3(s * 1.4, 2.8, 0), pole)
+	var c: Color = b[2]
+	var panel := M(c.darkened(0.15), c, 0.35 if night else 0.12, 0.4)
+	box(p, Vector3(2.3, 1.6, 0.35), Vector3(s * 1.4, 6.3, 0), panel)
+	box(p, Vector3(2.4, 0.1, 0.4), Vector3(s * 1.4, 7.12, 0), G(b[3], 2.5))
+	box(p, Vector3(2.4, 0.1, 0.4), Vector3(s * 1.4, 5.48, 0), G(b[3], 2.5))
+	logo(p, b[1], Vector3(s * 1.4, 6.45, 0.35), 1.1, b[3], Color(1, 1, 1), 1.2 if night else 0.5)
+	text(p, b[0], Vector3(s * 1.4, 5.8, 0.2), _fit_px(b[0], 2.1, 0.011), Color(1, 1, 1), 2.5 if night else 1.5)
+	if night:
+		light(p, Vector3(s * 1.4, 6.2, 1.5), b[3], 1.4, 7.0)
+
+
+## Flower bed along the kerb.
+func flower_bed(p: Node3D, s: float) -> void:
+	box(p, Vector3(0.8, 0.3, 2.4), Vector3(s * 0.4, 0.15, 0), M(Color(0.55, 0.45, 0.38), Color.BLACK, 0, 0.9))
+	box(p, Vector3(0.7, 0.05, 2.3), Vector3(s * 0.4, 0.31, 0), M(Color(0.3, 0.5, 0.2)))
+	var cols := [Color(1, 0.35, 0.5), Color(1, 0.85, 0.2), Color(0.7, 0.45, 1), Color(1, 1, 1), Color(1, 0.55, 0.2)]
+	for k in 9:
+		var fc: Color = cols[randi() % cols.size()]
+		sph(p, 0.11, Vector3(s * 0.4 + randf_range(-0.25, 0.25), 0.42, -1.0 + k * 0.25), M(fc, fc, 0.15))
+
+
+## Big billboard on tall posts beyond the first row of buildings.
+func billboard(z: float, s: float, night: bool, tall := false) -> void:
+	var b: Array = pick(BRANDS)
+	var n := node(Vector3(s * randf_range(17.0, 24.0), 0, z), 6.0)
+	var steel := M(Color(0.4, 0.4, 0.45), Color.BLACK, 0.0, 0.4, 0.7)
+	# in dense towns the board stands high enough to clear the rooftops
+	var h := randf_range(17.0, 21.0) if tall else randf_range(11.0, 15.0)
+	for xx in [-2.5, 2.5]:
+		box(n, Vector3(0.35, h, 0.35), Vector3(xx, h * 0.5, 0), steel)
+	box(n, Vector3(8.4, 0.2, 1.0), Vector3(0, h - 0.1, 0.4), steel)
+	var c: Color = b[2]
+	box(n, Vector3(8.4, 3.8, 0.3), Vector3(0, h + 1.8, 0), M(c.darkened(0.2), c, 0.25 if night else 0.08, 0.5))
+	box(n, Vector3(8.6, 0.15, 0.35), Vector3(0, h + 3.75, 0), G(b[3], 2.0))
+	box(n, Vector3(8.6, 0.15, 0.35), Vector3(0, h - 0.15, 0), G(b[3], 2.0))
+	logo(n, b[1], Vector3(-2.6, h + 1.8, 0.3), 2.8, b[3], Color(1, 1, 1), 1.0 if night else 0.4)
+	text(n, b[0], Vector3(1.3, h + 2.3, 0.2), _fit_px(b[0], 5.0, 0.03), Color(1, 1, 1), 2.8 if night else 1.8)
+	var sl: String = pick(SLOGANS)
+	text(n, sl, Vector3(1.3, h + 1.0, 0.2), _fit_px(sl, 4.0, 0.022), b[3], 2.8 if night else 1.8)
+	for xx in [-3.0, 0.0, 3.0]:
+		box(n, Vector3(0.3, 0.2, 0.5), Vector3(xx, h, 0.8), G(Color(1, 0.95, 0.8), 3.0))
+
+
+## Hot-air balloon drifting (bobbing) far over the town.
+func hot_air_balloon(z: float, s: float) -> void:
+	var n := node(Vector3(s * randf_range(26.0, 75.0), randf_range(20.0, 46.0), z), 10.0)
+	var palettes := [[Color(1.0, 0.3, 0.35), Color(1.0, 0.85, 0.25)], [Color(0.3, 0.55, 1.0), Color(1.0, 1.0, 1.0)],
+		[Color(0.55, 0.9, 0.35), Color(1.0, 0.55, 0.2)], [Color(0.75, 0.35, 1.0), Color(1.0, 0.6, 0.85)],
+		[Color(1.0, 0.55, 0.15), Color(0.2, 0.25, 0.6)], [Color(0.2, 0.85, 0.85), Color(1.0, 0.35, 0.6)]]
+	var pal: Array = pick(palettes)
+	var r := randf_range(3.2, 4.6)
+	var a := M(pal[0], pal[0], 0.1, 0.6)
+	var b := M(pal[1], pal[1], 0.1, 0.6)
+	# envelope: coloured gores approximated by stacked bands
+	for k in 7:
+		var t := float(k) / 6.0
+		var yy := r * (0.9 - t * 1.7)
+		var rad := r * sqrt(maxf(0.02, 1.0 - pow(0.9 - t * 1.7, 2.0) * 0.9))
+		cyl(n, rad, r * 0.26, Vector3(0, yy, 0), a if k % 2 == 0 else b)
+	sph(n, r * 0.62, Vector3(0, r * 0.95, 0), a, 0.6)
+	cone(n, r * 0.45, r * 0.8, Vector3(0, -r * 0.95, 0), b, Vector3(PI, 0, 0))
+	var rope := M(Color(0.3, 0.25, 0.2))
+	for k in 4:
+		var ang := TAU * k / 4.0 + 0.78
+		box(n, Vector3(0.05, r * 0.7, 0.05), Vector3(cos(ang) * 0.5, -r * 1.55, sin(ang) * 0.5), rope)
+	box(n, Vector3(1.2, 0.9, 1.2), Vector3(0, -r * 1.95, 0), M(Color(0.55, 0.35, 0.2), Color.BLACK, 0, 0.9))
+	box(n, Vector3(1.25, 0.12, 1.25), Vector3(0, -r * 1.95 + 0.45, 0), M(Color(0.35, 0.22, 0.12)))
+	sph(n, 0.25, Vector3(0, -r * 1.35, 0), G(Color(1.0, 0.6, 0.2), 4.0))
+	w.bobbers.append([n, n.position.y, randf_range(0.8, 1.6), randf_range(0.25, 0.45), randf() * TAU])
+
+
+## A flock of birds circling high up (one spinning node - cheap).
+func bird_flock(z: float, s: float) -> void:
+	var n := node(Vector3(s * randf_range(10.0, 45.0), randf_range(22.0, 34.0), z), 12.0)
+	var flock := Node3D.new()
+	n.add_child(flock)
+	var bm := M(Color(0.12, 0.1, 0.14))
+	for k in randi_range(5, 9):
+		var ang := randf() * TAU
+		var rr := randf_range(4.0, 9.0)
+		var p := Vector3(cos(ang) * rr, randf_range(-1.5, 1.5), sin(ang) * rr)
+		for sd in [-1.0, 1.0]:
+			var wing := box(flock, Vector3(0.7, 0.05, 0.22), p + Vector3(sd * 0.3, 0.1, 0), bm)
+			wing.rotation = Vector3(0, -ang, sd * 0.45)
+	w.spinners.append([flock, Vector3(0, 1, 0), randf_range(0.3, 0.6) * (1 if randf() < 0.5 else -1)])
+	w.bobbers.append([n, n.position.y, 1.2, 0.5, randf() * TAU])
+
+
+## Kite on a long string anchored behind the buildings.
+func kite(z: float, s: float) -> void:
+	var n := node(Vector3(s * randf_range(14.0, 30.0), randf_range(16.0, 26.0), z), 4.0)
+	var c: Color = pick([Color(1, 0.3, 0.4), Color(0.3, 0.7, 1), Color(1, 0.85, 0.2), Color(0.6, 1, 0.4), Color(0.8, 0.4, 1)])
+	var d := box(n, Vector3(1.6, 1.6, 0.05), Vector3.ZERO, M(c, c, 0.2, 0.6), false, Vector3(0, 0, PI / 4))
+	d.scale.y = 1.6
+	box(n, Vector3(0.05, 2.2, 0.06), Vector3.ZERO, M(Color(0.3, 0.2, 0.1)))
+	for k in 5:
+		box(n, Vector3(0.25, 0.12, 0.03), Vector3(sin(k * 1.3) * 0.3, -1.6 - k * 0.55, 0), M(Color.WHITE if k % 2 == 0 else c))
+	var st := box(n, Vector3(0.02, n.position.y * 1.1, 0.02), Vector3(-s * 3.0, -n.position.y * 0.5, 0), M(Color(0.9, 0.9, 0.9)))
+	st.rotation.z = s * 0.2
+	w.bobbers.append([n, n.position.y, 0.7, 1.1, randf() * TAU])
+
+
+## Advertising blimp with a lit banner.
+func blimp(z: float, s: float, night: bool) -> void:
+	var n := node(Vector3(s * randf_range(30.0, 70.0), randf_range(34.0, 50.0), z), 14.0)
+	var b: Array = pick(BRANDS)
+	var hull := M(Color(0.85, 0.86, 0.9), Color.BLACK, 0.0, 0.35, 0.3)
+	var body := sph(n, 3.0, Vector3.ZERO, hull)
+	body.scale = Vector3(3.0, 3.0, 9.0)
+	for sd in [-1.0, 1.0]:
+		box(n, Vector3(0.15, 2.4, 2.2), Vector3(sd * 1.1, 1.4, -8.0), M(b[2]), false, Vector3(0, 0, sd * 0.5))
+	box(n, Vector3(0.15, 2.8, 2.4), Vector3(0, 2.2, -8.0), M(b[2]))
+	box(n, Vector3(1.4, 1.0, 3.0), Vector3(0, -3.3, 0.5), M(Color(0.3, 0.3, 0.35)))
+	var side := -s
+	box(n, Vector3(0.12, 2.2, 9.0), Vector3(side * 3.02, 0.2, 0), M(b[2].darkened(0.1), b[2], 0.4 if night else 0.1))
+	text(n, b[0], Vector3(side * 3.1, 0.3, 0), _fit_px(b[0], 8.0, 0.03), Color(1, 1, 1), 3.0 if night else 1.5, Vector3(0, side * PI / 2, 0))
+	w.bobbers.append([n, n.position.y, 1.5, 0.2, randf() * TAU])
+
+
+## Wind turbine on the hills (blades spin on one node).
+func wind_turbine(z: float, s: float) -> void:
+	var n := node(Vector3(s * randf_range(35.0, 80.0), 0, z), 10.0)
+	var wh := M(Color(0.95, 0.95, 0.97), Color.BLACK, 0.0, 0.4, 0.2)
+	var h := randf_range(24.0, 32.0)
+	cyl(n, 0.7, h, Vector3(0, h * 0.5, 0), wh)
+	box(n, Vector3(1.2, 1.2, 2.6), Vector3(0, h, -0.4), wh)
+	var rotor := Node3D.new()
+	rotor.position = Vector3(0, h, 1.0)
+	n.add_child(rotor)
+	sph(rotor, 0.6, Vector3.ZERO, wh)
+	for k in 3:
+		var blade := box(rotor, Vector3(0.9, 11.0, 0.2), Vector3.ZERO, wh)
+		blade.rotation.z = TAU * k / 3.0
+		blade.position = Vector3(-sin(TAU * k / 3.0), cos(TAU * k / 3.0), 0) * 5.5
+	w.spinners.append([rotor, Vector3(0, 0, 1), randf_range(0.6, 1.2)])
+
+
+## Harbour lighthouse with a sweeping beam.
+func lighthouse(z: float, s: float) -> void:
+	var n := node(Vector3(s * randf_range(40.0, 70.0), -4.0, z), 10.0)
+	for k in 6:
+		cyl(n, 3.0 - k * 0.3, 4.0, Vector3(0, 2.0 + k * 4.0, 0), M(Color(0.95, 0.2, 0.2) if k % 2 == 0 else Color(0.97, 0.97, 0.97)))
+	cyl(n, 1.6, 2.5, Vector3(0, 26.0, 0), G(Color(1.0, 0.95, 0.7), 4.0))
+	cone(n, 2.0, 2.0, Vector3(0, 28.2, 0), M(Color(0.2, 0.2, 0.25)))
+	var head := Node3D.new()
+	head.position = Vector3(0, 26.0, 0)
+	n.add_child(head)
+	var beam: MeshInstance3D = w._beam(head, Vector3.ZERO, 1.5, 60.0, Color(1.0, 0.95, 0.7), 0.25)
+	beam.rotation.z = PI / 2
+	beam.position = Vector3(30.0, 0, 0)
+	w.spinners.append([head, Vector3(0, 1, 0), 0.8])
+
+
+## Town plaza: fountain + flower beds + benches + a couple of trees.
+func plaza(z: float, s: float, t: int) -> float:
+	var n := node(Vector3(s * 11.5, 0, z - 5.0), 6.0)
+	var stone := M(Color(0.82, 0.8, 0.76), Color.BLACK, 0, 0.8)
+	box(n, Vector3(9.0, 0.12, 10.0), Vector3(0, 0.06, 0), M(Color(0.75, 0.72, 0.68), Color.BLACK, 0, 0.9))
+	cyl(n, 2.4, 0.6, Vector3(0, 0.3, 0), stone)
+	cyl(n, 2.1, 0.08, Vector3(0, 0.58, 0), w.mat(Color(0.35, 0.65, 0.95), Color(0.3, 0.6, 1.0), 0.4, 0.05, 0.3, 0.6))
+	cyl(n, 0.35, 1.8, Vector3(0, 1.2, 0), stone)
+	cyl(n, 1.0, 0.25, Vector3(0, 2.1, 0), stone)
+	for k in 6:
+		var a := TAU * k / 6.0
+		var jet := box(n, Vector3(0.06, 1.2, 0.06), Vector3(cos(a) * 0.7, 2.6, sin(a) * 0.7), w.mat(Color(0.7, 0.9, 1.0), Color(0.5, 0.8, 1.0), 1.2, 0.1, 0.0, 0.3), false)
+		jet.rotation = Vector3(sin(a) * 0.4, 0, -cos(a) * 0.4)
+	sph(n, 0.3, Vector3(0, 2.4, 0), w.mat(Color(0.8, 0.95, 1.0), Color(0.6, 0.9, 1.0), 1.5, 0.1))
+	for zz in [-3.8, 3.8]:
+		bench(n, Vector3(-3.0, 0.12, zz), 1.0)
+	var fb := Node3D.new()
+	fb.position = Vector3(3.2, 0, 0)
+	n.add_child(fb)
+	flower_bed(fb, 1.0)
+	gtree(n, Vector3(3.5, 0.12, -3.8), _tree_for(t), 4.0)
+	gtree(n, Vector3(3.5, 0.12, 3.8), _tree_for(t), 4.5)
+	return 13.0
+
+
+## Extra atmosphere in the far layer, per map (kept sparse for performance).
+func far_extras(z: float, t: int) -> void:
+	var s := -1.0 if randf() < 0.5 else 1.0
+	var night: bool = t == 3 or t == 7
+	var r := randf()
+	match t:
+		0:
+			if r < 0.3: hot_air_balloon(z, s)
+			elif r < 0.45: bird_flock(z, s)
+			elif r < 0.55: blimp(z, s, false)
+		1:
+			if r < 0.22: hot_air_balloon(z, s)
+			elif r < 0.4: billboard(z, s, false, true)
+			elif r < 0.52: kite(z, s)
+			elif r < 0.6: bird_flock(z, s)
+		2:
+			if r < 0.2: hot_air_balloon(z, s)
+			elif r < 0.4: kite(z, s)
+			elif r < 0.55: billboard(z, s, false)
+			elif r < 0.62: bird_flock(z, s)
+		3:
+			if r < 0.35: billboard(z, s, true, true)
+			elif r < 0.47: blimp(z, s, true)
+		4:
+			if r < 0.4: billboard(z, s, false, true)
+			elif r < 0.52: blimp(z, s, false)
+		5:
+			if r < 0.22: hot_air_balloon(z, s)
+			elif r < 0.34: lighthouse(z, s)
+			elif r < 0.46: wind_turbine(z, s)
+			elif r < 0.58: bird_flock(z, s)
+			elif r < 0.66: kite(z, s)
+		6:
+			if r < 0.25: hot_air_balloon(z, s)
+			elif r < 0.42: bird_flock(z, s)
+			elif r < 0.5: kite(z, s)
+		7:
+			if r < 0.3: hot_air_balloon(z, s)
+			elif r < 0.5: billboard(z, s, true)
+			elif r < 0.58: blimp(z, s, true)
+		8:
+			if r < 0.3: billboard(z, s, false)
+			elif r < 0.48: wind_turbine(z, s)
+			elif r < 0.56: hot_air_balloon(z, s)

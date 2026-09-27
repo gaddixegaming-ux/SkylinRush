@@ -117,6 +117,7 @@ func _test_v9() -> void:
 	main.style.broken()
 	print("style broken: x%d -> x%d" % [before, main.style.mult()])
 	# ---- route fork: take the HIGH route, then the UNDERPASS
+	main.world.allow_tunnels = false
 	for want in ["high", "under"]:
 		main.world.force_fork = true
 		main.world.rows_since_fork = 99
@@ -140,6 +141,7 @@ func _test_v9() -> void:
 		await _wait(1.0)
 		await _shot("route_" + want)
 		await _wait(4.0)
+	main.world.allow_tunnels = true
 	# ---- pickups
 	var p: Vector3 = main.player.position
 	for c in ["energy", "fragment", "key", "artifact"]:

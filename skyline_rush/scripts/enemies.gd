@@ -280,10 +280,10 @@ func tick(delta: float, dz: float) -> void:
 	# ---- titan (mini-boss)
 	if titan != null:
 		titan_t -= delta
-		var tz := -34.0 if titan_t > 1.5 else -120.0
+		var tz := -26.0 if titan_t > 1.5 else -120.0
 		titan.position.z = lerpf(titan.position.z, tz, 1.0 - exp(-1.2 * delta))
 		titan.position.x = lerpf(titan.position.x, p.position.x * 0.4, 1.0 - exp(-1.0 * delta))
-		titan.position.y = 7.0 + sin(_anim * 1.7) * 0.4
+		titan.position.y = 6.0 + sin(_anim * 1.7) * 0.4
 		for arm in titan.get_meta("arms"):
 			arm.rotation.x = sin(_anim * 3.0 + arm.get_meta("ph")) * 0.4
 		titan_next -= delta
@@ -430,6 +430,7 @@ func _build_blocker() -> Node3D:
 func _build_titan() -> Node3D:
 	var n := Node3D.new()
 	n.rotation.y = PI  # faces the runner
+	n.scale = Vector3.ONE * 1.35
 	var armor := _m(Color(0.22, 0.2, 0.3), 0.0, 0.35, 0.7)
 	var glow := _m(RED, 5.0)
 	w._box(n, Vector3(4.0, 3.0, 2.4), Vector3(0, 0, 0), armor, true)

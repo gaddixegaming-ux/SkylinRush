@@ -10,6 +10,20 @@ Open Godot 4.3 or newer → Import → choose `project.godot` → press F5.
   - Everything can be set in **SETTINGS**: LOW / MEDIUM / HIGH / ULTRA presets, AO and GI toggles, auto-performance, and an FPS counter.
 - **Grounded buildings:** the land beside the road is now flush with the base of every building. Nothing floats any more; the Candy Carnival gets a pink candy lawn.
 
+- **Signs, logos and atmosphere:**
+  - 10 fictional brands with 3D logos, each with its own sign: SKY CAFE (coffee cup), BURGER BLAST (burger), PIZZA ORBIT (pizza slice), NEON BEATS (music note), LOVE FM (heart), STAR MART (star), FROSTY (ice-cream), DONUT HOLE (donut), FIZZ COLA (soda bottle) and VOLT ENERGY (lightning bolt).
+  - The signs come as sidewalk A-frame boards (OPEN, SALE, HOT, 24H...), roadside pole signs, and big billboards on tall posts (above the rooftops in dense towns). They light up at night.
+  - **Hot-air balloons** drift over Sky Roads, Lantern Festival, Skate Park, Hover Harbor, Sakura Heights, Candy Carnival and Turbo Highway.
+  - Also new:
+    - circling **bird flocks**
+    - **kites**
+    - advertising **blimps**
+    - **wind turbines**
+    - a harbour **lighthouse** with a sweeping beam
+    - town **plazas** with fountains
+    - flower beds
+  - It stays light on performance: each prop is merged into one mesh, moving parts spin or bob as a single node, and they spawn sparsely in the far layer.
+
 ### Gameplay
 - **Stepped speed:** the run warms up to cruising speed in about 20 s. From then on the speed stays **constant for 45 s**, rises a little (+2.5 m/s, eased in over a few seconds, with a SPEED UP! cue) and holds again, until top speed after about 7 minutes.
 - **STYLE / momentum multiplier:**

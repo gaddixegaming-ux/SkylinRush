@@ -285,7 +285,7 @@ func _spawn_row_inner(z: float, gap: float) -> float:
 	if fork_rows > 0:
 		new_safe = 0  # the high path and the underpass own the outer lanes
 	var tunnel_lane := 0
-	if rows_spawned > 8 and rows_spawned % 19 == 9 and platform_rows == 0 and wall_rows == 0 and fork_rows == 0:
+	if allow_tunnels and rows_spawned > 8 and rows_spawned % 19 == 9 and platform_rows == 0 and wall_rows == 0 and fork_rows == 0:
 		tunnel_lane = -1 if randf() < 0.5 else 1
 		if new_safe == tunnel_lane:
 			new_safe = 0
@@ -1813,6 +1813,7 @@ const HIGH_Y := 6.0
 var fork_rows := 0
 var rows_since_fork := 0
 var force_fork := false   # tests / events can ask for the next row to be a fork
+var allow_tunnels := true # tests switch warp tunnels off
 
 
 func _spawn_fork(z: float) -> float:
@@ -1895,7 +1896,7 @@ func _spawn_fork(z: float) -> float:
 	# ---- UNDERPASS: roofed tunnel over the right lane
 	var u := _obj("underpass", 1, start - FORK_LEN * 0.5, FORK_LEN * 0.5)
 	u.set_meta("len", FORK_LEN)
-	var conc := mat(Color(0.42, 0.42, 0.46), Color.BLACK, 0.0, 0.85)
+	var conc := mat(Color(0.62, 0.6, 0.66), Color(0.5, 0.45, 0.6), 0.12, 0.85)
 	var dark := mat(Color(0.12, 0.12, 0.15), Color.BLACK, 0.0, 0.9)
 	var lamp := mat(Color(1.0, 0.85, 0.6), Color(1.0, 0.8, 0.5), 3.5)
 	_box(u, Vector3(3.4, 0.4, FORK_LEN), Vector3(0.1, 4.6, 0), conc)
@@ -1906,6 +1907,8 @@ func _spawn_fork(z: float) -> float:
 		_box(u, Vector3(0.35, 4.4, 0.35), Vector3(-1.25, 2.2, zz), conc)
 		_box(u, Vector3(1.6, 0.06, 0.25), Vector3(0.1, 4.37, zz), lamp, false)
 		_box(u, Vector3(0.05, 0.3, 1.2), Vector3(1.38, 1.0, zz), mat(CYAN, CYAN, 2.0, 0.4, 0, 0, 0.8), false)
+		_box(u, Vector3(0.06, 0.5, 0.9), Vector3(1.37, 3.2, zz + 3.0), lamp, false)
+		_box(u, Vector3(0.04, 3.6, 0.12), Vector3(1.38, 2.0, zz + 1.5), mat(Color(1.0, 0.5, 0.8), Color(1.0, 0.45, 0.8), 1.8), false)
 	# entrance portal frame + sign
 	_box(u, Vector3(3.6, 0.7, 0.5), Vector3(0.1, 4.2, FORK_LEN * 0.5), mat(Color(0.2, 0.2, 0.25), CYAN, 0.4))
 	var was2 := batching
