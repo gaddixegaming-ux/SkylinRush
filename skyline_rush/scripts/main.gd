@@ -1641,10 +1641,9 @@ func _on_hit(obj: Node3D, kind: String) -> void:
 		cam.add_trauma(0.45)
 		cam.kick_roll(0.2)
 		hud.flash(Color(1.0, 0.2, 0.3), 0.25)
-		hud.popup("STUMBLE!  THE ENFORCER IS ON YOU", Color(1.0, 0.45, 0.45), 38)
+		hud.popup("STUMBLE!  CAREFUL", Color(1.0, 0.45, 0.45), 38)
 		audio.play("stumble")
 		flow *= 0.5
-		enemies.stumble()
 		return
 	# bounce back off the obstacle so the fall never clips into it
 	var box: AABB = obj.get_meta("box")
@@ -1652,7 +1651,7 @@ func _on_hit(obj: Node3D, kind: String) -> void:
 	if front > -1.6:
 		world.scroll(-(front + 1.6))
 		fx.tick(0.0, -(front + 1.6))
-	_crash("CAUGHT BY THE ENFORCER" if enemies.is_chasing() else "WIPED OUT")
+	_crash("WIPED OUT")
 
 
 # ============================================================ abilities
@@ -2531,26 +2530,6 @@ func enemy_smashed(pos: Vector3, who: String) -> void:
 	_mission("smash", 1)
 
 
-func rival_knocked(stolen: int) -> void:
-	var c := stolen * 2 + 10
-	gold += c
-	audio.play("smash", 1.2)
-	cam.add_trauma(0.25)
-	hud.popup("RIVAL DOWN!  +%d COINS" % c, Color(0.75, 0.4, 1.0), 44)
-	_style_move("smash")
-
-
-func titan_escaped() -> void:
-	if state != State.PLAYING:
-		return
-	var pts := 1000 * _score_mult()
-	score += pts
-	gold += 50
-	hud.popup("ESCAPED THE TITAN!  +%d  ·  +50 COINS" % pts, Color(1.0, 0.5, 0.2), 44)
-	audio.play("overdrive")
-	_mission("boss", 1)
-
-
 func event_survived(nm: String, _id: String) -> void:
 	if state != State.PLAYING:
 		return
@@ -2568,18 +2547,15 @@ func _tick_enemy_spawns(delta: float) -> void:
 	if enemy_t > 0.0 or events.current != "" or enemies.any_active() or distance < 250.0:
 		return
 	enemy_t = randf_range(22.0, 38.0)
-	match randi() % 4:
+	match randi() % 3:
 		0:
-			enemies.add_rival()
-			hud.popup("A RIVAL RUNNER IS STEALING YOUR COINS!  DASH INTO HER", Color(0.75, 0.4, 1.0), 32)
-		1:
 			enemies.add_blocker()
 			hud.popup("BLOCKER AHEAD!", Color(1.0, 0.5, 0.2), 38)
-		2:
+		1:
 			enemies.add_bomber()
 			enemies.solo_t = 12.0
 			hud.popup("BOMBER DRONE!", Color(1.0, 0.3, 0.25), 38)
-		3:
+		2:
 			enemies.add_hunter()
 			enemies.solo_t = 12.0
 			hud.popup("HUNTER DRONE!", Color(1.0, 0.3, 0.25), 38)

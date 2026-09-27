@@ -5,7 +5,6 @@ extends RefCounted
 ##   DRONE HUNT    - bomber + hunter drones go after you
 ##   OVERDRIVE     - everything speeds up, score and coins x2
 ##   GRAVITY SHIFT - low gravity: floaty, huge jumps
-##   MECH CHASE    - mini-boss: the TITAN slams shockwaves down the lanes
 ## Surviving an event pays a bonus and counts towards missions.
 
 const EVENTS := {
@@ -14,7 +13,6 @@ const EVENTS := {
 	"drone_hunt": {"name": "DRONE HUNT", "sub": "BOMBERS + HUNTERS INCOMING", "dur": 18.0, "col": Color(1.0, 0.3, 0.25)},
 	"overdrive": {"name": "OVERDRIVE", "sub": "SPEED UP  ·  SCORE + COINS x2", "dur": 20.0, "col": Color(1.0, 0.4, 0.9)},
 	"gravity": {"name": "GRAVITY SHIFT", "sub": "LOW GRAVITY  ·  FLY HIGH", "dur": 15.0, "col": Color(0.45, 1.0, 0.8)},
-	"mech_chase": {"name": "MECH CHASE", "sub": "THE TITAN ATTACKS  ·  JUMP THE SHOCKWAVES", "dur": 20.0, "col": Color(1.0, 0.45, 0.15)},
 }
 
 var g
@@ -63,8 +61,6 @@ func start(id: String) -> void:
 		"drone_hunt":
 			g.enemies.add_bomber()
 			g.enemies.add_hunter()
-		"mech_chase":
-			g.enemies.start_titan()
 		"gravity":
 			g.player.grav_mult = 0.45
 		"overdrive":

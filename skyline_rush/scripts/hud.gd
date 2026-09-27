@@ -940,7 +940,7 @@ func _build_controls() -> void:
 		pg.add_child(_chip(r[0], r[2]))
 		pg.add_child(_label(r[1], 18, Color.WHITE, 0, font_reg))
 	cv.add_child(_gap(4))
-	cv.add_child(_label("Your garage ride is handed to you when you enter its map, for RIDE TIME seconds (ride tokens refill it):\nskateboard - SKATE PARK  ·  hover - HOVER HARBOR  ·  moto - TURBO HIGHWAY\nSTYLE: chain different moves to climb x2 → x3 → x5 → x10 (getting hit resets it)\nROUTES: left lane ramp = HIGH ROUTE (risky, x2 coins)  ·  right lane = UNDERPASS (safe)\nMenu:  G garage  ·  U upgrades  ·  C style shop  ·  H records  ·  O settings\nTOUCH: swipe to move / jump / slide, DASH + HOOK buttons\nESC pause  ·  M music  ·  F11 fullscreen  ·  gamepad supported", 16, TEXT_DIM, 0, font_reg))
+	cv.add_child(_label("Your garage ride is handed to you when you enter its map, for RIDE TIME seconds (ride tokens refill it):\nskateboard - SKATE PARK  ·  hover - HOVER HARBOR  ·  moto - TURBO HIGHWAY\nSTYLE: chain different moves to climb x2 → x3 → x5 → x10 (getting hit resets it)\nROUTES: left lane ramp = HIGH ROUTE (risky, x2 coins)  ·  right lane = UNDERPASS (safe)\nMenu:  G garage  ·  U upgrades  ·  C style shop  ·  H records  ·  O settings\nTOUCH: swipe to move / jump / slide, double-tap = HOOK, DASH button\nESC pause  ·  M music  ·  F11 fullscreen  ·  gamepad supported", 16, TEXT_DIM, 0, font_reg))
 
 
 func _center_panel(border: Color) -> VBoxContainer:
@@ -1462,7 +1462,7 @@ func _fill_settings(d: Dictionary) -> void:
 	_toggle("FPS COUNTER", "fps_counter", bool(d["fps_counter"]))
 	side_body.add_child(_label("GAMEPLAY", 18, GOLD))
 	_slider("CAMERA SHAKE", "shake", float(d["shake"]))
-	_toggle("TOUCH CONTROLS", "touch", bool(d["touch"]), "swipe + on-screen DASH / HOOK")
+	_toggle("TOUCH CONTROLS", "touch", bool(d["touch"]), "swipes, double-tap HOOK, DASH button")
 
 
 func _num(v) -> String:

@@ -29,19 +29,39 @@ func _initialize() -> void:
 	gm.albedo_color = Color(0.3, 0.3, 0.34)
 	ground.material_override = gm
 	root.add_child(ground)
-	var rows := [["sedan", "paint:0"], ["sedan", "two:1:2"], ["taxi", "taxi"], ["hatch", "police"], ["hatch", "paint:4"],
-		["taxi", "paint:6"], ["minibus", "paint:5"], ["coach", "two:8:2"], ["truck", "brand:3"], ["truck2", "brand:7"]]
+	var rows := [["taxi", "taxi"], ["sedan", "police"], ["hatch", "sport:1"], ["taxi", "taxi_green"], ["sedan", "two:0:2"],
+		["minibus", "ambulance"], ["minibus", "icecream"], ["coach", "school"], ["truck", "fire"], ["truck2", "brand:4"]]
+	var nodes := []
 	for i in rows.size():
-		var r: Array = w.car_instance(root, Vector3((i % 5) * 3.4 - 6.8, 0, -(i / 5) * 12.0), rows[i][0], rows[i][1], false, 0.5)
+		var r: Array = w.car_instance(root, Vector3((i % 5) * 3.4 - 6.8, 0, -(i / 5) * 12.0), rows[i][0], rows[i][1], false, 0.0, Color(0.2, 0.5, 0.9), "FIZZ COLA")
+		nodes.append(r[0])
 		print(rows[i][0], " ", rows[i][1], " size ", r[1].size)
 	var cam := Camera3D.new()
 	root.add_child(cam)
-	cam.position = Vector3(2, 9, 16)
-	cam.look_at(Vector3(0, 0.5, -5))
+	cam.position = Vector3(9, 6, 11)
+	cam.look_at(Vector3(0, 0.8, -5))
 	cam.current = true
 	RenderingServer.global_shader_parameter_set("curve_amount", Vector2.ZERO)
 	for i in 4:
 		await process_frame
 	await RenderingServer.frame_post_draw
 	get_root().get_texture().get_image().save_png("res://tools/shots/cars_lineup.png")
+	cam.position = Vector3(11, 2.0, -9)
+	cam.look_at(Vector3(2, 1.0, -9))
+	for i in 3:
+		await process_frame
+	await RenderingServer.frame_post_draw
+	get_root().get_texture().get_image().save_png("res://tools/shots/cars_side.png")
+	# close-ups of the +X side of each vehicle, alone (lettering check)
+	for i in rows.size():
+		for k in nodes.size():
+			nodes[k].visible = k == i
+		var c: Vector3 = nodes[i].position
+		var far := 5.5 if i < 5 else 10.0
+		cam.position = c + Vector3(far, 1.2, 0)
+		cam.look_at(c + Vector3(0, 1.0, 0))
+		for k in 2:
+			await process_frame
+		await RenderingServer.frame_post_draw
+		get_root().get_texture().get_image().save_png("res://tools/shots/car_%d.png" % i)
 	quit()

@@ -170,7 +170,6 @@ func _test_v9() -> void:
 		await _wait(0.3)
 	main.enemies.clear()
 	# ---- enemies outside events
-	main.enemies.add_rival()
 	main.enemies.add_blocker()
 	main.enemies.add_hunter()
 	main.enemies.solo_t = 6.0
@@ -180,8 +179,21 @@ func _test_v9() -> void:
 		await process_frame
 		el3 += minf(main.get_process_delta_time(), 0.05)
 	await _shot("enemies")
-	print("enemies: rival=%s blocker=%s hunters=%d chasing=%s" % [main.enemies.rival != null, main.enemies.blocker != null, main.enemies.hunters.size(), main.enemies.is_chasing()])
+	print("enemies: blocker=%s hunters=%d" % [main.enemies.blocker != null, main.enemies.hunters.size()])
 	main.enemies.clear()
+	# ---- touch: a double tap fires the HOOK
+	main.touch.set_enabled(true)
+	for k in 2:
+		for pr in [true, false]:
+			var ev := InputEventScreenTouch.new()
+			ev.index = 0
+			ev.position = Vector2(500, 500)
+			ev.pressed = pr
+			main.touch._input(ev)
+		if k == 0:
+			print("touch: single tap armed=%s" % [main.touch.last_tap > 0])
+	print("touch: double tap -> hook fired=%s" % [main.touch.last_tap == -10000])
+	main.touch.set_enabled(false)
 	# ---- missions
 	var w0: int = main.prog.wallet
 	var info: Dictionary = main.prog.mission_info(main.prog.missions[0])

@@ -49,19 +49,15 @@ Open Godot 4.3 or newer → Import → choose `project.godot` → press F5.
   - **STREET** (middle): the normal road.
   - **UNDERPASS** (right lane): a roofed tunnel with few coins and no obstacles. It is slower, but safe.
 - **Enemies:**
-  - **ENFORCER:** chases you after a stumble. Stumble again while he's close and you're caught.
   - **BOMBER** drone: drops blocks into the lanes.
   - **HUNTER** drone: locks a red laser on your lane, then fires. Change lane!
-  - **RIVAL** runner: steals the coins in her lane. Dash into her to win them back.
   - **BLOCKER** sled-bot: slides in front of you. Dodge it or dash through it.
-  - **TITAN** mini-boss (MECH CHASE): rolls shockwaves down the lanes; jump them.
 - **Random events** about every minute, each paying a bonus if you survive it:
   - **BUS RUSH:** waves of buses, one lane always free.
   - **BLACKOUT:** the city goes dark except for warning lights and your torch.
   - **DRONE HUNT**
   - **OVERDRIVE:** faster, with score and coins x2.
   - **GRAVITY SHIFT:** low gravity.
-  - **MECH CHASE**
 - **New collectibles:**
   - **Energy** (cyan bolt): recharges all abilities.
   - **Fragments** (purple crystals): buy permanent ability upgrades.
@@ -81,7 +77,7 @@ Open Godot 4.3 or newer → Import → choose `project.godot` → press F5.
 ### Mobile version
 - `tools/make_mobile.py` builds the **mobile edition**:
   - Godot's **Mobile renderer**, with no global illumination and cheap contact shading in place of SSAO
-  - **touch controls**: swipe left/right/up/down, DASH and HOOK buttons, a pause button (swipe up twice = SKY JUMP)
+  - **touch controls**: swipe left/right/up/down, double-tap = HOOK, a DASH button, a pause button (swipe up twice = SKY JUMP)
   - landscape immersive fullscreen
   - 2048 px model textures
   - an Android export preset

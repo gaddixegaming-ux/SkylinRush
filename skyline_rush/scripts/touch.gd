@@ -3,17 +3,22 @@ extends Control
 ##   swipe left / right  - change lane (swipe into a wall to wall-run)
 ##   swipe up            - jump  (swipe up twice fast = SKY JUMP)
 ##   swipe down          - slide  (in the air: ground slam)
-##   DASH / HOOK buttons - the Q / E abilities
+##   double tap        - HOOK (the E grapple)
+##   DASH button         - the Q ability
 ##   pause button        - top left
 
 const SWIPE := 55.0
+const TAP_TIME := 260     # ms a touch may last and still count as a tap
+const DOUBLE_TAP := 320   # ms allowed between the two taps of a double tap
+const TAP_SLOP := 140.0   # px the second tap may land away from the first
 
 var game
 var enabled := false
 var starts := {}          # touch index -> [start_pos, time, done]
 var buttons: Array = []   # [Rect2 getter node, action]
 var btn_dash: Button
-var btn_hook: Button
+var last_tap := -10000       # ms
+var last_tap_pos := Vector2.ZERO
 var btn_pause: Button
 
 
@@ -21,10 +26,8 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	btn_dash = _round_button("DASH", Color(1.0, 0.35, 0.75), Vector2(-190, -300))
-	btn_hook = _round_button("HOOK", Color(0.4, 1.0, 0.6), Vector2(-330, -190))
 	btn_pause = _round_button("II", Color(0.7, 0.65, 1.0), Vector2(0, 0), true)
 	btn_dash.pressed.connect(func(): game._use_dash())
-	btn_hook.pressed.connect(func(): game._use_hook())
 	btn_pause.pressed.connect(func(): game._set_paused(true))
 	set_enabled(false)
 
@@ -70,12 +73,11 @@ func _process(_delta: float) -> void:
 		return
 	var playing: bool = game.state == game.State.PLAYING
 	btn_dash.visible = playing
-	btn_hook.visible = playing
 	btn_pause.visible = playing
 
 
 func _on_button(pos: Vector2) -> bool:
-	for b in [btn_dash, btn_hook, btn_pause]:
+	for b in [btn_dash, btn_pause]:
 		if b.visible and b.get_global_rect().grow(12.0).has_point(pos):
 			return true
 	return false
@@ -96,6 +98,8 @@ func _input(event: InputEvent) -> void:
 				var d: Vector2 = event.position - st[0]
 				if d.length() >= SWIPE:
 					_swipe(d)
+				elif Time.get_ticks_msec() - int(st[1]) <= TAP_TIME:
+					_tap(event.position)
 			game.player.release_jump()
 	elif event is InputEventScreenDrag:
 		var st = starts.get(event.index)
@@ -105,6 +109,17 @@ func _input(event: InputEvent) -> void:
 		if d.length() >= SWIPE:
 			st[2] = true
 			_swipe(d)
+
+
+## Two quick taps = HOOK (grapple).
+func _tap(pos: Vector2) -> void:
+	var now := Time.get_ticks_msec()
+	if now - last_tap <= DOUBLE_TAP and pos.distance_to(last_tap_pos) <= TAP_SLOP:
+		last_tap = -10000
+		game._use_hook()
+		return
+	last_tap = now
+	last_tap_pos = pos
 
 
 func _swipe(d: Vector2) -> void:

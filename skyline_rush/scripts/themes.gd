@@ -292,22 +292,9 @@ func _shophouse(z: float, s: float, o: Dictionary) -> float:
 	return facade_building(z, s, q)
 
 
-func _person(p: Node3D, pos: Vector3, facing: float) -> void:
-	var n := Node3D.new()
-	n.position = pos
-	n.rotation.y = facing
-	p.add_child(n)
-	var top: Color = pick([Color(0.95, 0.4, 0.4), Color(0.4, 0.6, 0.95), Color(0.95, 0.8, 0.35), Color(0.5, 0.85, 0.6), Color(0.8, 0.5, 0.9)])
-	var pants: Color = pick([Color(0.25, 0.25, 0.4), Color(0.35, 0.3, 0.25), Color(0.2, 0.3, 0.35)])
-	var skin: Color = pick([Color(1.0, 0.82, 0.68), Color(0.85, 0.62, 0.45), Color(0.55, 0.38, 0.28)])
-	box(n, Vector3(0.18, 0.75, 0.2), Vector3(-0.12, 0.38, 0), M(pants))
-	box(n, Vector3(0.18, 0.75, 0.2), Vector3(0.12, 0.38, 0), M(pants))
-	box(n, Vector3(0.5, 0.65, 0.3), Vector3(0, 1.08, 0), M(top), true)
-	box(n, Vector3(0.14, 0.6, 0.16), Vector3(-0.33, 1.05, 0), M(top))
-	box(n, Vector3(0.14, 0.6, 0.16), Vector3(0.33, 1.05, 0), M(top))
-	sph(n, 0.22, Vector3(0, 1.62, 0), M(skin))
-	box(n, Vector3(0.44, 0.14, 0.42), Vector3(0, 1.8, 0.02), M(pick([Color(0.15, 0.1, 0.08), Color(0.9, 0.75, 0.35), Color(0.35, 0.2, 0.12)])))
-	w.bobbers.append([n, pos.y, 0.05, randf_range(2.0, 4.0), randf() * TAU])
+## Street NPCs were removed from the game; kept as a no-op so callers stay simple.
+func _person(_p: Node3D, _pos: Vector3, _facing: float) -> void:
+	return
 
 
 func _lamp(p: Node3D, pos: Vector3, s: float, lamp_c: Color, pole_c: Color, lit := false) -> void:
@@ -322,8 +309,7 @@ func _lamp(p: Node3D, pos: Vector3, s: float, lamp_c: Color, pole_c: Color, lit 
 func _car_decor(p: Node3D, pos: Vector3) -> void:
 	# a parked car from the vehicle kit (random type + livery, no hazard rim)
 	var CM := preload("res://scripts/car_models.gd")
-	var types: Array = CM.types_of("car")
-	var type: String = types[randi() % types.size()]
+	var type: String = ["taxi", "sedan", "hatch", "taxi"][randi() % 4]
 	var r: Array = w.car_instance(p, pos, type, CM.random_livery(type), false, randf_range(-0.2, 0.2))
 	if r[0] == null:
 		box(p, Vector3(1.7, 0.6, 3.8), pos + Vector3(0, 0.55, 0), M(Color(0.9, 0.9, 0.95)), true)
@@ -335,9 +321,6 @@ func _festival_side(z: float, s: float) -> float:
 	if r < 0.72:
 		var sp := _shophouse(z, s, {"colors": [Color(1.0, 0.72, 0.78), Color(0.78, 0.72, 1.0), Color(0.65, 0.9, 0.85), Color(1.0, 0.82, 0.62), Color(0.62, 0.8, 1.0)],
 			"sign": pick(["vertical", "panel"]), "lanterns": randf() < 0.5, "fmin": 2, "fmax": 4, "signs": [Color(1, 0.35, 0.35), Color(0.3, 0.75, 0.6), Color(1, 0.8, 0.3)]})
-		if randf() < 0.5:
-			var pn := node(Vector3(s * randf_range(5.2, 7.0), 0.12, z - 2.0), 1.0)
-			_person(pn, Vector3.ZERO, s * PI * 0.5 + randf_range(-0.8, 0.8))
 		return sp
 	var n := node(Vector3(s * 6.3, 0.12, z), 3.0)
 	if r < 0.86:
@@ -541,12 +524,6 @@ func _market_side(z: float, s: float) -> float:
 		return barber_shop(z, s)
 	if shop < 0.39:
 		return food_cart(z, s)
-	if randf() < 0.2:
-		var pn := node(Vector3(s * randf_range(5.0, 7.0), 0.12, z), 1.0)
-		_person(pn, Vector3.ZERO, randf() * TAU)
-		if randf() < 0.5:
-			_person(pn, Vector3(0.7, 0, 0.8), randf() * TAU)
-		return randf_range(1.5, 3.0)
 	return facade_building(z, s, {"colors": [Color(0.55, 0.45, 0.65), Color(0.85, 0.55, 0.7), Color(0.5, 0.6, 0.75), Color(0.95, 0.72, 0.6), Color(0.62, 0.78, 0.7)],
 		"floors": [3, 5], "neon": true, "ac": true, "depth": 7.0,
 		"words": ["NOODLES", "GAMES", "ARCADE", "SUSHI", "PHONES", "KARAOKE", "BOBA", "HOTEL", "MANGA", "PIZZA", "RAMEN", "TECH"],
@@ -1266,7 +1243,7 @@ func skate_extra(z: float, s: float) -> float:
 				if randf() < 0.6:
 					_person(n3, Vector3(s * k * 0.9, 0.4 + k * 0.45, -3.0 + j * 2.0 + randf_range(-0.4, 0.4)), -s * PI * 0.5)
 		return 10.0
-	if r < 0.72:
+	if r < 0.8:
 		# graffiti wall with a big tag
 		var n4 := node(Vector3(s * 9.0, 0, z - 4.0), 4.5)
 		box(n4, Vector3(0.4, 3.0, 8.0), Vector3(0, 1.5, 0), M(Color(0.85, 0.83, 0.8)), true)
@@ -1276,13 +1253,6 @@ func skate_extra(z: float, s: float) -> float:
 			d.scale.z *= randf_range(1.0, 2.2)
 		text(n4, pick(["SKATE", "SHRED", "GRIND", "RUSH", "OLLIE"]), Vector3(-s * 0.24, 1.6, 0), 0.03, pick([Color(1, 0.3, 0.6), Color(0.2, 0.8, 0.95), Color(1, 0.85, 0.2)]), 1.2, Vector3(0, -s * PI * 0.5, 0))
 		return 10.0
-	if r < 0.86:
-		# skater NPC riding in place + board rack
-		var n5 := node(Vector3(s * randf_range(8.0, 10.0), 0, z), 2.0)
-		box(n5, Vector3(0.3, 0.05, 1.0), Vector3(0, 0.12, 0), M(pick([Color(1, 0.4, 0.6), Color(0.3, 0.8, 1), Color(1, 0.85, 0.3)])))
-		_person(n5, Vector3(0, 0.15, 0), randf() * TAU)
-		w.bobbers.append([n5, 0.0, 0.25, 2.5, randf() * TAU])
-		return 5.0
 	# food truck
 	var n6 := node(Vector3(s * 11.0, 0, z - 3.0), 3.5)
 	var c2: Color = pick([Color(1, 0.55, 0.2), Color(0.3, 0.75, 0.95), Color(0.95, 0.35, 0.5)])

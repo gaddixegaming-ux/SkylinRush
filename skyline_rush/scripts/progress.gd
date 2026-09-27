@@ -75,7 +75,6 @@ const MISSIONS := [
 	["frags", "Collect %d fragments", "frag", [5, 20, 50, 120], 300, 0, false],
 	["events", "Survive %d random events", "event", [1, 3, 8, 20], 350, 4, false],
 	["hunter", "Dodge %d HUNTER strikes", "dodge", [2, 6, 15, 30], 300, 3, false],
-	["boss", "Escape the MECH CHASE %d times", "boss", [1, 2, 5, 10], 500, 6, false],
 	["keys", "Open %d SHORTCUTS with keys", "shortcut", [1, 2, 5, 10], 400, 4, false],
 ]
 

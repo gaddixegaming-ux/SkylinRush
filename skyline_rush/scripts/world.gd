@@ -628,16 +628,13 @@ func _spawn_laser(lane: int, z: float) -> void:
 
 ## A vehicle from cars_src.glb (one merged, vertex-coloured mesh) under parent.
 ## Returns [MeshInstance3D, AABB] (null if the model is missing).
-func car_instance(parent: Node3D, pos: Vector3, type: String, livery: String, hazard: bool, yaw := 0.0, brand_col := Color(0.9, 0.2, 0.2)) -> Array:
-	var r: Array = CarModels.mesh(type, livery, hazard, brand_col)
+func car_instance(parent: Node3D, pos: Vector3, type: String, livery: String, hazard: bool, yaw := 0.0, brand_col := Color(0.9, 0.2, 0.2), brand_name := "") -> Array:
+	var r: Array = CarModels.mesh(type, livery, hazard, brand_col, brand_name)
 	if r[0] == null:
 		return [null, AABB()]
-	if vc_mat == null:
-		vc_mat = ShaderMaterial.new()
-		vc_mat.shader = WORLD_VC
 	var mi := MeshInstance3D.new()
 	mi.mesh = r[0]
-	mi.material_override = vc_mat
+	mi.material_override = CarModels.material()
 	mi.position = pos
 	mi.rotation.y = yaw
 	mi.extra_cull_margin = 60.0
@@ -647,8 +644,8 @@ func car_instance(parent: Node3D, pos: Vector3, type: String, livery: String, ha
 
 func _spawn_car(lane: int, z: float) -> void:
 	# traffic -> dodge, or jump onto its roof (textured model cars, random liveries)
-	var types := CarModels.types_of("car")
-	var type: String = types[randi() % types.size()]
+	# lots of taxis in town, then sedans / hatchbacks in all sorts of liveries
+	var type: String = "taxi" if randf() < 0.4 else ("sedan" if randf() < 0.5 else "hatch")
 	var n := _obj("car", lane, z, 2.6)
 	var r := car_instance(n, Vector3.ZERO, type, CarModels.random_livery(type), true)
 	if r[0] != null:
@@ -2078,16 +2075,17 @@ func _spawn_big_vehicle(lane: int, z: float, moving: bool) -> bool:
 	var type: String = ["coach", "coach", "truck", "truck2", "minibus"][randi() % 5]
 	var brand: Array = themes.BRANDS[randi() % themes.BRANDS.size()]
 	var livery := CarModels.random_livery(type)
-	var probe: Array = CarModels.mesh(type, livery, true, brand[2])
+	var bname: String = brand[0] if livery.begins_with("brand") else ""
+	var probe: Array = CarModels.mesh(type, livery, true, brand[2], bname)
 	if probe[0] == null:
 		return false
 	var bb: AABB = probe[1]
 	var half := bb.size.z * 0.5
 	var n := _obj("bus", lane, z - half, half + 0.5)
 	n.set_meta("move", randf_range(7.0, 10.0) if moving else 0.0)
-	car_instance(n, Vector3.ZERO, type, livery, true, 0.0, brand[2])
+	car_instance(n, Vector3.ZERO, type, livery, true, 0.0, brand[2], bname)
 	n.set_meta("box", AABB(Vector3(bb.position.x + 0.05, 0.0, bb.position.z), Vector3(bb.size.x - 0.1, bb.size.y, bb.size.z)))
-	if type.begins_with("truck"):
+	if type.begins_with("truck") and bname != "":
 		# brand logo on both sides of the cargo box
 		for sd in [-1.0, 1.0]:
 			var lg := Node3D.new()
