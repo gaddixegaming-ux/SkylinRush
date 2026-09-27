@@ -11,6 +11,7 @@ Open Godot 4.3 or newer → Import → choose `project.godot` → press F5.
 - **Grounded buildings:** the land beside the road is now flush with the base of every building. Nothing floats any more; the Candy Carnival gets a pink candy lawn.
 
 ### Gameplay
+- **Stepped speed:** the run warms up to cruising speed in about 20 s. From then on the speed stays **constant for 45 s**, rises a little (+2.5 m/s, eased in over a few seconds, with a SPEED UP! cue) and holds again, until top speed after about 7 minutes.
 - **STYLE / momentum multiplier:**
   - Chain moves to climb **x1 → x2 → x3 → x5 → x10** (STYLISH, SLICK, SAVAGE, LEGENDARY). Moves include jump, slide, dash, air dash, wall run, wall jump, grapple, swing, slam, grind, board trick, 360 air, close call, smash and dodge.
   - Variety pays: repeating the same move is worth much less.

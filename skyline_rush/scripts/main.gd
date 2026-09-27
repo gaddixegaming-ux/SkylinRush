@@ -23,6 +23,13 @@ const LANE_WIDTH := 2.5
 const START_SPEED := 16.0
 const MAX_SPEED := 44.0
 const SPEED_GAIN := 0.3
+## Stepped pacing: warm up to CRUISE_SPEED, then the speed stays constant for
+## SPEED_HOLD seconds, rises a little (SPEED_STEP, eased in over a few
+## seconds), and holds again - until MAX_SPEED.
+const CRUISE_SPEED := 24.0
+const SPEED_HOLD := 45.0
+const SPEED_STEP := 2.5
+const SPEED_EASE := 0.7   # m/s per second while stepping up
 const MENU_SPEED := 9.0
 const ZONE_LEN := 750.0
 
@@ -89,6 +96,8 @@ var sun: DirectionalLight3D
 var stars_mat: StandardMaterial3D
 
 var speed := START_SPEED
+var speed_target := CRUISE_SPEED
+var speed_hold := 0.0
 var distance := 0.0
 var score := 0.0
 var gold := 0
@@ -851,6 +860,8 @@ func _start_game() -> void:
 	panel = ""
 	hud.show_panel("", {})
 	speed = START_SPEED
+	speed_target = CRUISE_SPEED
+	speed_hold = 0.0
 	distance = 0.0
 	score = 0.0
 	gold = 0
@@ -1105,7 +1116,7 @@ func _process(delta: float) -> void:
 
 
 func _play_step(delta: float) -> void:
-	speed = minf(MAX_SPEED, speed + SPEED_GAIN * delta)
+	_tick_speed(delta)
 	_tick_abilities(delta)
 	var wmult := _speed_mult()
 	var eff := speed * wmult
@@ -2684,3 +2695,18 @@ func _settings_data() -> Dictionary:
 	d["perf_level"] = perf_level
 	d["mobile"] = is_mobile
 	return d
+
+
+func _tick_speed(delta: float) -> void:
+	if speed < speed_target:
+		# warm-up is quicker; later steps ease in gently
+		var rate := SPEED_GAIN * 1.4 if speed_target <= CRUISE_SPEED else SPEED_EASE
+		speed = minf(speed_target, speed + rate * delta)
+		return
+	speed_hold += delta
+	if speed_hold >= SPEED_HOLD and speed_target < MAX_SPEED:
+		speed_hold = 0.0
+		speed_target = minf(MAX_SPEED, speed_target + SPEED_STEP)
+		hud.popup("SPEED UP!", Color(1.0, 0.6, 0.3), 40)
+		audio.play("ready", 0.9, -4.0)
+		cam.punch_fov(6.0)
