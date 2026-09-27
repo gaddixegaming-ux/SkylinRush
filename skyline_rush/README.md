@@ -1,6 +1,25 @@
-# SKYLINE RUSH v11: endless runner with 9 tracks, 5 runners, 3 rideable vehicles, PC + mobile (Godot 4.3+, PC)
+# SKYLINE RUSH v12: endless runner with 9 tracks, 5 runners, 3 rideable vehicles, PC + mobile (Godot 4.3+, PC)
 
 Open Godot 4.3 or newer → Import → choose `project.godot` → press F5.
+
+## What's new in v12
+- **Playtested:** a bot played every track for real (`tools/playtest.gd`) and every death was traced frame by frame. Fixes from that:
+  - **Jumps:**
+    - a tapped or swiped jump always rises for at least 0.18 s (about a 2.3 m hop), so it no longer turns into a 1 m hop that clips low barriers
+    - releasing early cuts the jump more gently, and the fall is slower
+    - this matters most for touch play, where every swipe is a tap
+  - **Fairer hitboxes:**
+    - JUMP barriers and spikes are deadly only below their top 0.3 m, and are 0.2 m shallower
+    - overhead SLIDE bars start 0.2 m higher
+  - Bot runs are now about 5 times longer on every track.
+- **Removed the parts that made it feel unfair or annoying:**
+  - the BLACKOUT event (the screen went dark)
+  - drones and the BLOCKER sled-bot turning up at random between events (drones now appear only in the announced DRONE HUNT event)
+- **Grind rails:** the overhead GRIND sign blocked the whole view while riding the rail, so the word is now painted on the road instead. The rail glows less.
+- **Warp tunnels:** removed the floating sign above the entrance, which runners on the walkable roof ran into.
+- **Microsoft Store:**
+  - `tools/make_msix.py` builds the Store package (`.msix`): full-trust desktop game for Windows 10/11 (x64), with tile and store logos generated from the game icon
+  - the Windows `.exe` now carries the game icon, name, company and version
 
 ## What's new in v11
 - **Mobile: bright again and much lighter** (the MOBILE quality preset is now a "lite" mode):
@@ -80,13 +99,11 @@ Open Godot 4.3 or newer → Import → choose `project.godot` → press F5.
   - **HIGH ROUTE** (left-lane ramp): a narrow sky path with x2 coins, fragments and maybe a key or artifact. It is faster, but has tough obstacles.
   - **STREET** (middle): the normal road.
   - **UNDERPASS** (right lane): a roofed tunnel with few coins and no obstacles. It is slower, but safe.
-- **Enemies:**
+- **Enemies** (only during the DRONE HUNT event):
   - **BOMBER** drone: drops blocks into the lanes.
   - **HUNTER** drone: locks a red laser on your lane, then fires. Change lane!
-  - **BLOCKER** sled-bot: slides in front of you. Dodge it or dash through it.
 - **Random events** about every minute, each paying a bonus if you survive it:
   - **BUS RUSH:** waves of buses, one lane always free.
-  - **BLACKOUT:** the city goes dark except for warning lights and your torch.
   - **DRONE HUNT**
   - **OVERDRIVE:** faster, with score and coins x2.
   - **GRAVITY SHIFT:** low gravity.

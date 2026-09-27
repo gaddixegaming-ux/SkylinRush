@@ -15,8 +15,9 @@ signal grapple_released
 
 const LANE_WIDTH := 2.5
 const GRAVITY := 52.0
-const FALL_MULT := 1.45
-const JUMP_CUT_MULT := 2.2
+const FALL_MULT := 1.25
+const JUMP_CUT_MULT := 1.6
+const MIN_JUMP_T := 0.18    # a tapped / swiped jump always rises this long (~2.3 m hop)
 const JUMP_VELOCITY := 16.0
 const DOUBLE_JUMP_VELOCITY := 14.5
 const DASH_JUMP_VELOCITY := 19.0
@@ -48,6 +49,7 @@ var grounded := true
 var coyote_t := 0.0
 var buffer_t := 0.0
 var jump_held := false
+var jump_t := 0.0          # time since the last jump started
 var can_double := true
 var slam_pending := false
 var slamming := false
@@ -564,6 +566,7 @@ func bend(p: Vector3) -> Vector3:
 
 
 func _do_jump(kind: String) -> void:
+	jump_t = 0.0
 	slide_timer = 0.0
 	buffer_t = 0.0
 	coyote_t = 0.0
@@ -598,6 +601,7 @@ func _do_jump(kind: String) -> void:
 # ============================================================ update
 func tick(delta: float, speed: float, running: bool) -> void:
 	lane_change_time += delta
+	jump_t += delta
 	orbit_root.rotate_y(delta * 3.0)
 	if dead:
 		vy -= GRAVITY * delta
@@ -687,7 +691,7 @@ func tick(delta: float, speed: float, running: bool) -> void:
 			var g := GRAVITY * grav_mult
 			if vy < 0.0:
 				g *= FALL_MULT
-			elif not jump_held:
+			elif not jump_held and jump_t > MIN_JUMP_T:
 				g *= JUMP_CUT_MULT
 			vy -= g * delta
 			var prev_y := position.y

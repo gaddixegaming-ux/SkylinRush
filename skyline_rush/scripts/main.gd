@@ -176,7 +176,6 @@ var run_rank := 0
 var route := ""           # "high" / "under" while on a branch route
 var head_start := 0.0     # metres of HEAD START boost left
 var mission_t := 0.0
-var enemy_t := 30.0
 var is_mobile := false
 var perf_t := 0.0
 var perf_frames := 0
@@ -962,7 +961,6 @@ func _start_game() -> void:
 	style.window = prog.frag_value("style_keep")
 	events.reset()
 	enemies.clear()
-	enemy_t = randf_range(25.0, 40.0)
 	run_frags = 0
 	run_keys = 0
 	run_artifacts.clear()
@@ -1207,7 +1205,6 @@ func _play_step(delta: float) -> void:
 	style.tick(delta)
 	events.tick(delta)
 	enemies.tick(delta, dz)
-	_tick_enemy_spawns(delta)
 	if head_start > 0.0:
 		head_start -= dz
 		grace = maxf(grace, 0.3)
@@ -1500,7 +1497,18 @@ func _check_objects(delta: float) -> void:
 			if not obj.get_meta("passed", false) and wb.position.z > 0.6:
 				obj.set_meta("passed", true)
 				_check_close_call(obj)
-			if wb.intersects(pbox):
+			# forgiving hitboxes: low barriers / spikes only count below their top
+			# 0.3 m and are a bit shallower; overhead bars start 0.2 m higher
+			var hb := wb
+			if kind in ["jump", "pop_spikes"]:
+				hb.size.y = maxf(0.1, hb.size.y - 0.3)
+				if hb.size.z > 0.3:
+					hb.position.z += 0.1
+					hb.size.z -= 0.2
+			elif kind == "slide":
+				hb.position.y += 0.2
+				hb.size.y = maxf(0.1, hb.size.y - 0.2)
+			if hb.intersects(pbox):
 				var on_top: bool = kind in WorldScript.SOLID and player.position.y >= wb.end.y - 0.45
 				if not on_top and kind == "rail":
 					# grind rails never kill: running into one hops you up onto it
@@ -2561,26 +2569,6 @@ func event_survived(nm: String, _id: String) -> void:
 	hud.popup("%s SURVIVED!  +%d  ·  +25 COINS" % [nm, pts], GREEN, 40)
 	audio.play("ready", 1.1)
 	_mission("event", 1)
-
-
-## Enemies also turn up outside the random events.
-func _tick_enemy_spawns(delta: float) -> void:
-	enemy_t -= delta
-	if enemy_t > 0.0 or events.current != "" or enemies.any_active() or distance < 250.0:
-		return
-	enemy_t = randf_range(22.0, 38.0)
-	match randi() % 3:
-		0:
-			enemies.add_blocker()
-			hud.popup("BLOCKER AHEAD!", Color(1.0, 0.5, 0.2), 38)
-		1:
-			enemies.add_bomber()
-			enemies.solo_t = 12.0
-			hud.popup("BOMBER DRONE!", Color(1.0, 0.3, 0.25), 38)
-		2:
-			enemies.add_hunter()
-			enemies.solo_t = 12.0
-			hud.popup("HUNTER DRONE!", Color(1.0, 0.3, 0.25), 38)
 
 
 func _mission(stat: String, v: int, per_run := false) -> void:

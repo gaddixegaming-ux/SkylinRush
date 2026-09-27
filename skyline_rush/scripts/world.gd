@@ -1358,9 +1358,6 @@ func _spawn_tunnel(z: float, lane: int) -> void:
 	q.extra_cull_margin = 60.0
 	q.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	n.add_child(q)
-	# sign post: floating accent sign above the entrance
-	_box(n, Vector3(2.2, 0.8, 0.2), Vector3(0, 3.4, 0.2), mat(Color(0.1, 0.08, 0.14), a, 0.5), false)
-	_box(n, Vector3(2.0, 0.55, 0.05), Vector3(0, 3.4, 0.32), mat(a, a, 3.0, 0.4, 0, 0, 1.0), false)
 	for i in 3:
 		var c1 := _box(n, Vector3(0.9, 0.04, 0.22), Vector3(-0.32, 0.03, 7.0 - i * 2.0), mat(a, a, 3.0, 0.4, 0, 0, 1.5), false)
 		c1.rotation.y = -0.6
@@ -1467,11 +1464,11 @@ func _spawn_rail(lane: int, z: float) -> void:
 	# metal grind rail: jump on and grind (sparks + bonus on a skateboard)
 	# (running into it hops you on - it never kills - and it is painted to be
 	# seen from far: glowing orange pipe, striped posts, lit lane under it,
-	# a ramp + GRIND sign at the start)
+	# a ramp + GRIND marking at the start)
 	var n := _obj("rail", lane, z, 11.5)
 	n.set_meta("box", AABB(Vector3(-0.3, 0.0, -10.0), Vector3(0.6, 1.0, 20.0)))
 	var orange := Color(1.0, 0.55, 0.1)
-	var pipe_m := mat(Color(1.0, 0.45, 0.05), orange, 0.5, 0.5, 0.0, 0.3, 0.0, Color(1, 0.9, 0.6))
+	var pipe_m := mat(Color(1.0, 0.45, 0.05), orange, 0.25, 0.5, 0.0, 0.3, 0.0, Color(1, 0.9, 0.6))
 	var post_y := mat(Color(1.0, 0.85, 0.15), Color(1.0, 0.7, 0.1), 0.2, 0.5, 0.2)
 	var post_k := mat(Color(0.08, 0.08, 0.1), Color.BLACK, 0.0, 0.6, 0.2)
 	for k in 5:
@@ -1488,10 +1485,9 @@ func _spawn_rail(lane: int, z: float) -> void:
 	for k in 4:
 		var rp := _box(n, Vector3(0.9, 0.08, 0.55), Vector3(0, 0.12 + k * 0.25, 11.9 - k * 0.52), mat(Color(0.62, 0.42, 0.04) if k % 2 == 0 else Color(0.08, 0.08, 0.1), Color.BLACK, 0.0, 0.95, 0.0, 0.0), false)
 		rp.rotation.x = 0.46
-	_box(n, Vector3(1.4, 0.5, 0.08), Vector3(0, 2.0, 10.2), mat(Color(0.1, 0.08, 0.12), orange, 0.4), false)
-	themes.text(n, "GRIND", Vector3(0, 2.0, 10.26), 0.022, Color(1.0, 0.85, 0.3), 2.5)
-	for sd in [-1.0, 1.0]:
-		_box(n, Vector3(0.06, 1.8, 0.06), Vector3(sd * 0.6, 0.9, 10.2), post_k, false)
+	# "GRIND" painted flat on the road before the ramp (nothing overhead that
+	# could block the view while you ride the rail)
+	themes.text(n, "GRIND", Vector3(0, 0.04, 14.2), 0.012, Color(1.0, 0.8, 0.25), 1.2, Vector3(-PI / 2, 0, 0))
 
 
 func _spawn_kicker(lane: int, z: float) -> void:

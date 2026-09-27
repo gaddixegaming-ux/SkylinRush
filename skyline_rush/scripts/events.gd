@@ -1,7 +1,6 @@
 extends RefCounted
 ## Random events: every minute or so something unusual happens for a while.
 ##   BUS RUSH      - waves of oncoming buses, always one lane free
-##   BLACKOUT      - the city goes dark; only warning lights and your torch
 ##   DRONE HUNT    - bomber + hunter drones go after you
 ##   OVERDRIVE     - everything speeds up, score and coins x2
 ##   GRAVITY SHIFT - low gravity: floaty, huge jumps
@@ -9,7 +8,6 @@ extends RefCounted
 
 const EVENTS := {
 	"bus_rush": {"name": "BUS RUSH", "sub": "ONE LANE STAYS FREE  ·  FIND IT", "dur": 14.0, "col": Color(1.0, 0.75, 0.2)},
-	"blackout": {"name": "BLACKOUT", "sub": "FOLLOW THE WARNING LIGHTS", "dur": 16.0, "col": Color(0.55, 0.6, 1.0)},
 	"drone_hunt": {"name": "DRONE HUNT", "sub": "BOMBERS + HUNTERS INCOMING", "dur": 18.0, "col": Color(1.0, 0.3, 0.25)},
 	"overdrive": {"name": "OVERDRIVE", "sub": "SPEED UP  ·  SCORE + COINS x2", "dur": 20.0, "col": Color(1.0, 0.4, 0.9)},
 	"gravity": {"name": "GRAVITY SHIFT", "sub": "LOW GRAVITY  ·  FLY HIGH", "dur": 15.0, "col": Color(0.45, 1.0, 0.8)},
