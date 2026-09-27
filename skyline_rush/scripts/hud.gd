@@ -101,6 +101,12 @@ var fps_lbl: Label
 var sub_tab := {"upgrades": "coins", "records": "scores", "customize": "trails"}
 var _panel_data := {}
 var over_extra: VBoxContainer
+var portrait := false         # phone held upright: stacked layout
+var zone_top: VBoxContainer
+var topbar: HBoxContainer
+var menu_grad: TextureRect
+var play_btn: Button
+var nav_buttons: Array = []   # [button, name, hotkey]
 const PURPLE := Color(0.75, 0.35, 1.0)
 const STYLE_COLS := [Color(0.6, 0.45, 1.0), Color(0.35, 0.9, 1.0), Color(0.6, 1.0, 0.5), Color(1.0, 0.55, 0.2), Color(1.0, 0.3, 0.8)]
 
@@ -338,6 +344,10 @@ func _ready() -> void:
 	_build_menu()
 	_build_pause()
 	_build_over()
+	var vs := get_viewport().get_visible_rect().size
+	portrait = vs.y > vs.x
+	if portrait:
+		_portrait_layout()
 	fps_lbl = _label("", 18, Color(0.7, 1.0, 0.7), 5)
 	fps_lbl.position = Vector2(12, 4)
 	fps_lbl.visible = false
@@ -532,6 +542,7 @@ func _build_hud() -> void:
 
 	# zone progress + speed (top-center)
 	var top := VBoxContainer.new()
+	zone_top = top
 	top.anchor_left = 0.5
 	top.anchor_right = 0.5
 	top.offset_top = 28
@@ -687,6 +698,7 @@ func _build_menu() -> void:
 	gt.fill_from = Vector2(0, 0)
 	gt.fill_to = Vector2(1, 0)
 	var tr := TextureRect.new()
+	menu_grad = tr
 	tr.texture = gt
 	tr.anchor_bottom = 1.0
 	tr.anchor_right = 0.6
@@ -695,7 +707,7 @@ func _build_menu() -> void:
 	menu.add_child(tr)
 
 	# top bar: wallet + best
-	var topbar := HBoxContainer.new()
+	topbar = HBoxContainer.new()
 	topbar.anchor_left = 1.0
 	topbar.anchor_right = 1.0
 	topbar.offset_left = -40
@@ -751,6 +763,7 @@ func _build_menu() -> void:
 	tv.add_child(t2)
 	menu_col.add_child(_gap(8))
 	var play := _button("▶   PLAY                       SPACE", PINK, 470, 76, 32)
+	play_btn = play
 	play.pressed.connect(func(): play_pressed.emit())
 	menu_col.add_child(play)
 	# top navigation bar
@@ -763,6 +776,7 @@ func _build_menu() -> void:
 			["RECORDS", "H", GREEN, "records"], ["SETTINGS", "O", Color(0.7, 0.75, 1.0), "settings"], ["CONTROLS", "TAB", CYAN, "controls"], ["QUIT", "", Color(0.6, 0.5, 0.9), "quit"]]:
 		var nb := _button(it[0] + (("  " + it[1]) if it[1] != "" else ""), it[2], 140, 46, 16)
 		nb.alignment = HORIZONTAL_ALIGNMENT_CENTER
+		nav_buttons.append([nb, it[0], it[3]])
 		var id: String = it[3]
 		nb.pressed.connect(func():
 			if id == "controls":
@@ -1044,6 +1058,58 @@ func _build_over() -> void:
 	hb.add_child(b2)
 
 
+## Phone held upright (the mobile edition): same screens, stacked vertically.
+##   menu: nav on top, wallet under it, the runner in the middle, the logo +
+##   PLAY + pickers at the bottom (thumb reach); panels centred and taller;
+##   in-game: zone progress under the score / coin cards.
+func _portrait_layout() -> void:
+	# menu shading from the bottom (behind the buttons) instead of the left
+	var grad: GradientTexture2D = menu_grad.texture
+	grad.fill_from = Vector2(0, 1)
+	grad.fill_to = Vector2(0, 0)
+	menu_grad.anchor_right = 1.0
+	menu_grad.anchor_top = 0.35
+	# nav: no keyboard hints, no QUIT (the phone's back / home does that)
+	nav.offset_left = 24
+	nav.offset_top = 28
+	nav.add_theme_constant_override("separation", 6)
+	for it in nav_buttons:
+		var b: Button = it[0]
+		if it[2] == "quit":
+			b.visible = false
+			continue
+		b.text = it[1]
+		b.custom_minimum_size = Vector2(0, 58)
+		b.add_theme_font_size_override("font_size", 17)
+	topbar.offset_top = 104
+	topbar.offset_right = -24
+	# logo + PLAY + pickers along the bottom
+	menu_col.anchor_top = 1.0
+	menu_col.anchor_bottom = 1.0
+	menu_col.offset_left = 60
+	menu_col.offset_bottom = -70
+	menu_col.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	play_btn.text = "▶   PLAY"
+	play_btn.custom_minimum_size = Vector2(470, 96)
+	upg_card.visible = false
+	# panels: centred, taller
+	side_panel.anchor_left = 0.5
+	side_panel.anchor_right = 0.5
+	side_panel.offset_left = -500
+	side_panel.offset_right = 500
+	side_panel.offset_top = 70
+	side_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	side_panel.custom_minimum_size = Vector2(1000, 0)
+	var sc: ScrollContainer = side_panel.find_child("Scroll", true, false)
+	sc.custom_minimum_size = Vector2(960, 0)
+	for c in side_body.resized.get_connections():
+		side_body.resized.disconnect(c["callable"])
+	side_body.resized.connect(func(): sc.custom_minimum_size.y = minf(side_body.size.y, 1380.0))
+	# in-game: zone progress below the score + coin cards
+	zone_top.offset_top = 205
+	popups.offset_top = 380
+
+
 # ============================================================ screens
 func show_menu(best: int, wallet: int) -> void:
 	menu.visible = true
@@ -1085,7 +1151,7 @@ func set_wallet(n: int) -> void:
 
 func toggle_controls() -> void:
 	controls_panel.visible = not controls_panel.visible
-	upg_card.visible = not controls_panel.visible and cur_panel == ""
+	upg_card.visible = not controls_panel.visible and cur_panel == "" and not portrait
 
 
 ## Garage / upgrades overlay on the left (the lobby character stays visible).
@@ -1094,7 +1160,7 @@ func show_panel(p: String, data: Dictionary) -> void:
 	side_panel.visible = p != ""
 	menu_col.visible = p == ""
 	nav.visible = p == ""
-	upg_card.visible = p == ""
+	upg_card.visible = p == "" and not portrait
 	if p != "":
 		controls_panel.visible = false
 	for c in side_body.get_children():
@@ -1472,13 +1538,13 @@ func _num(v) -> String:
 
 func set_character(name: String, hobby: String, idx: int, total: int) -> void:
 	char_name.text = name
-	char_hobby.text = "RUNNER %d / %d  ·  %s  ·  Q / E" % [idx + 1, total, hobby.to_upper()]
+	char_hobby.text = ("RUNNER %d / %d  ·  %s" if portrait else "RUNNER %d / %d  ·  %s  ·  Q / E") % [idx + 1, total, hobby.to_upper()]
 	_pop(char_name)
 
 
 func set_track(name: String, idx: int, total: int, hint := "", accent := CYAN) -> void:
 	track_name.text = name
-	track_num.text = "TRACK %d / %d  ·  A / D" % [idx + 1, total]
+	track_num.text = ("TRACK %d / %d" if portrait else "TRACK %d / %d  ·  A / D") % [idx + 1, total]
 	track_hint.text = hint
 	track_hint.visible = hint != ""
 	track_swatch.color = accent
@@ -1700,9 +1766,9 @@ func zone_banner(title: String, sub: String) -> void:
 	tw.chain().tween_property(zone_box, "modulate:a", 0.0, 0.6)
 
 
-## Touch mode: the ability slots show the on-screen buttons / swipes.
+## Touch mode: the ability slots show the on-screen button / taps / swipes.
 func set_touch_keys(on: bool) -> void:
-	var keys := ["BTN", "BTN", "SWIPE x2"] if on else ["Q", "E", "SPACE x2"]
+	var keys := ["BTN", "TAP x2", "SWIPE x2"] if on else ["Q", "E", "SPACE x2"]
 	for i in mini(slots.size(), 3):
 		slots[i].key = keys[i]
 		slots[i].queue_redraw()

@@ -255,6 +255,8 @@ func _ready() -> void:
 	enemies.process_mode = Node.PROCESS_MODE_PAUSABLE
 	is_mobile = OS.has_feature("mobile") or "--mobile" in OS.get_cmdline_user_args() \
 			or bool(ProjectSettings.get_setting("skyline/mobile_build", false))
+	if is_mobile:
+		Engine.max_fps = 60      # no point rendering faster than the panel; saves battery / heat
 	if is_mobile and not prog.settings.has("_mobile_init"):
 		prog.settings["touch"] = true
 		prog.settings["quality"] = "mobile"
@@ -2625,7 +2627,9 @@ func _apply_graphics() -> void:
 	if perf_level >= 3:
 		shadow_d = minf(shadow_d, 34.0)
 	sun.directional_shadow_max_distance = shadow_d
-	sun.shadow_enabled = q != "low"
+	# phones: the governor drops shadows, then glow, before anything else
+	sun.shadow_enabled = q != "low" and not (q == "mobile" and perf_level >= 2)
+	env.glow_enabled = not (q == "mobile" and perf_level >= 3)
 	var vp := get_viewport()
 	if q == "ultra" and perf_level < 3:
 		vp.msaa_3d = Viewport.MSAA_4X
@@ -2635,7 +2639,7 @@ func _apply_graphics() -> void:
 		vp.msaa_3d = Viewport.MSAA_DISABLED
 	if q == "mobile" or q == "low":
 		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if forward_plus else Viewport.SCALING_3D_MODE_BILINEAR
-		vp.scaling_3d_scale = 0.8 if q == "mobile" else 0.85
+		vp.scaling_3d_scale = 0.85 if q == "low" else maxf(0.5, 0.75 - perf_level * 0.08)
 		vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
 	else:
 		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR

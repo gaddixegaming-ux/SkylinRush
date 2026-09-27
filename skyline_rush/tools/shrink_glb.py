@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Run: python3 tools/shrink_glb.py models/*.glb
-Downscale the textures embedded in GLB files (max 2048 px) to keep the download small."""
+"""Run: python3 tools/shrink_glb.py [--max 1024] models/*.glb
+Downscale the textures embedded in GLB files (default max 2048 px) to keep the download small."""
 import io, json, struct, sys
 from PIL import Image
 
@@ -47,5 +47,10 @@ def shrink(path, max_px=2048):
     open(path, 'wb').write(res)
     print(path, len(b), '->', len(res))
 
-for p in sys.argv[1:]:
-    shrink(p)
+args = sys.argv[1:]
+mx = 2048
+if args and args[0] == '--max':
+    mx = int(args[1])
+    args = args[2:]
+for p in args:
+    shrink(p, mx)

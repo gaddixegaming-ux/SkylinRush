@@ -145,6 +145,8 @@ func omni(p: Node3D, pos: Vector3, c: Color, e: float, rng: float, shadow := fal
 
 
 func probe(p: Node3D, size: Vector3) -> void:
+	if OS.has_feature("mobile") or bool(ProjectSettings.get_setting("skyline/mobile_build", false)):
+		return  # reflection probes are too heavy for phones
 	var rp := ReflectionProbe.new()
 	rp.size = size
 	rp.position = Vector3(0, size.y * 0.5 - 0.4, -1.0)

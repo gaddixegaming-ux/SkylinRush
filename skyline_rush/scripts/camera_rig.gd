@@ -69,6 +69,11 @@ func update_cam(delta: float, player, speed_factor: float, extra_fov: float, cur
 
 	if mode != Mode.DEAD:
 		dead_t = 0.0
+	# phone held upright: FOV is horizontal (keeps all three lanes in view),
+	# the camera sits higher and further back so the tall screen shows the road
+	var vs := get_viewport().get_visible_rect().size
+	var portrait := vs.y > vs.x
+	keep_aspect = Camera3D.KEEP_WIDTH if portrait else Camera3D.KEEP_HEIGHT
 	match mode:
 		Mode.MENU:
 			var lobby := true
@@ -76,7 +81,11 @@ func update_cam(delta: float, player, speed_factor: float, extra_fov: float, cur
 			orbit = (2.2 + sin(t * 0.3) * 0.22) if lobby else (2.55 + sin(t * 0.25) * 0.45)
 			target_pos = p + Vector3(sin(orbit) * rad, (1.7 if lobby else 2.3) + sin(t * 0.4) * 0.2, cos(orbit) * rad)
 			# lobby: frame the character on the right third of the screen
+			# (portrait: centred, in the upper half above the menu buttons)
 			target_look = p + (Vector3(0.9, 1.05, 1.1) if lobby else Vector3(0, 1.4, 0))
+			if portrait:
+				target_pos = p + Vector3(sin(orbit) * 5.4, 2.0 + sin(t * 0.4) * 0.2, cos(orbit) * 5.4)
+				target_look = p + Vector3(0, 0.15, 0)
 			rate = 3.0
 		Mode.PLAY:
 			var dip: float = player.cam_dip
@@ -91,6 +100,10 @@ func update_cam(delta: float, player, speed_factor: float, extra_fov: float, cur
 			# look ahead into the curve of the road
 			target_look = Vector3(p.x * 0.9 + curve.x * 300.0, 1.45 + hy * 0.92 + above * 0.25 + dip * 0.4 + curve.y * 110.0, -9.0)
 			fov_mod += hy * 1.0
+			if portrait:
+				target_pos.y += 1.1
+				target_pos.z += 0.4
+				target_look.y -= 0.9
 			var tr: int = cs.get("trick", 0)
 			if tr != 0:
 				target_pos.x = p.x * 0.35 - tr * 1.2
@@ -194,4 +207,6 @@ func update_cam(delta: float, player, speed_factor: float, extra_fov: float, cur
 	if mode == Mode.DEAD:
 		base = 55.0
 	var ft := base + speed_factor * 13.0 + extra_fov * 0.8 + fov_punch + fov_mod
+	if portrait:
+		ft = ft * 0.8 + 4.0   # horizontal FOV
 	fov = lerpf(fov, clampf(ft, 45.0, 115.0), 1.0 - exp(-6.0 * delta))

@@ -1,6 +1,21 @@
-# SKYLINE RUSH v9: endless runner with 9 tracks, 5 runners, 3 rideable vehicles, PC + mobile (Godot 4.3+, PC)
+# SKYLINE RUSH v10: endless runner with 9 tracks, 5 runners, 3 rideable vehicles, PC + mobile (Godot 4.3+, PC)
 
 Open Godot 4.3 or newer → Import → choose `project.godot` → press F5.
+
+## What's new in v10
+- **Realistic vehicles:** every car, van, bus and truck is textured by the new `shaders/car_kit.gdshader`:
+  - metallic clear-coat paint with flakes, reflections, door seams, handles, a bonnet line and road grime near the sills
+  - tinted glass, treaded tyres with chrome hubs, headlight / tail-light lenses and number plates
+  - liveries: yellow and green **checker TAXIS** (lots of them in town, with a roof sign), **POLICE** (dark lower body, blue band, light bar), **AMBULANCE**, **ICE CREAM** van (with a giant cone), **SCHOOL BUS**, city bus, **FIRE DEPT** truck (with ladder), branded delivery trucks (FIZZ COLA...), racing stripes and two-tone paint
+  - the names are lettered on both sides
+- **Removed:** the ENFORCER that chased you after a stumble, the RIVAL runner that ran next to you, the TITAN mech chase, and the pedestrians / NPCs on the streets.
+- **Touch:** HOOK (the E grapple) is now a **double tap** anywhere on the screen. The HOOK button is gone; DASH keeps its button.
+- **Mobile edition, rebuilt for low-end phones:**
+  - played **vertically (portrait)**: the menu stacks with the runner on top and the buttons at thumb height, panels are centred, and in-game the camera is higher with a horizontal FOV so all three lanes fit the tall screen
+  - the **Compatibility renderer** (OpenGL ES 3), the fastest one on low-end Android GPUs
+  - all **4K textures downscaled to 1024 px** (the model textures and the 2K character skins); the splash is 1280 px
+  - 1024 px shadow maps, no soft shadows, no MSAA, no reflection probes, capped at 60 fps
+  - the 3D scene renders at 75 % resolution. If the frame rate drops, auto-performance steps down to 67 / 59 / 51 %, then turns shadows and then glow off.
 
 ## What's new in v9
 ### Look and performance
@@ -76,10 +91,10 @@ Open Godot 4.3 or newer → Import → choose `project.godot` → press F5.
 
 ### Mobile version
 - `tools/make_mobile.py` builds the **mobile edition**:
-  - Godot's **Mobile renderer**, with no global illumination and cheap contact shading in place of SSAO
+  - the **Compatibility renderer** (fastest on low-end phones), with no global illumination and cheap contact shading in place of SSAO
   - **touch controls**: swipe left/right/up/down, double-tap = HOOK, a DASH button, a pause button (swipe up twice = SKY JUMP)
-  - landscape immersive fullscreen
-  - 2048 px model textures
+  - **portrait** (vertical) immersive fullscreen
+  - every texture capped at 1024 px
   - an Android export preset
 - The main project also detects phones automatically: touch on, MOBILE quality preset.
 - `export_presets.cfg` has **Windows Desktop**, **Linux** and **Android** (arm64) presets.
