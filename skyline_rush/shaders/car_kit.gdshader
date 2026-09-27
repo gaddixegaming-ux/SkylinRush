@@ -8,7 +8,7 @@
 //              5 tail light, 6 plastic trim, 7 plate, 8 chrome, 9 cargo box,
 //              10 sign / light bar, 11 decal ink (lettering)
 //   UV.y       rim (negative = red hazard rim like every other obstacle)
-//   UV2.x      livery code + 10 * round(length * 10)
+//   UV2.x      livery code + 10 * round(length * 10) (+5000: paint bus side windows)
 //              0 none, 1 taxi checker, 2 police, 3 ambulance, 4 school bus,
 //              5 fire truck, 6 racing stripes, 7 ice-cream, 8 city bus
 //   UV2.y      vehicle height (m)
@@ -17,6 +17,7 @@ shader_type spatial;
 
 global uniform vec2 curve_amount;
 global uniform float fake_ao;
+uniform float reflections = 1.0;   // 0 on mobile (lite mode)
 
 varying vec3 lp;
 varying vec3 ln;
@@ -40,6 +41,8 @@ void vertex() {
 void fragment() {
 	int id = int(UV.x + 0.5);
 	float code = UV2.x;
+	bool bus_windows = code > 4999.0;
+	if (bus_windows) code -= 5000.0;
 	int liv = int(mod(code + 0.5, 10.0));
 	float len = floor((code + 0.5) / 10.0) / 10.0;
 	float h = UV2.y;
@@ -52,6 +55,15 @@ void fragment() {
 	float hy = lp.y / max(h, 0.1);   // 0 at the ground, 1 at the roof
 	float zf = lp.z / max(len, 0.1) + 0.5;  // 0 at the back, 1 at the front
 
+	// buses: a band of side windows with pillars, painted onto the bodywork
+	if (id == 0 && bus_windows && side && hy > 0.5 && hy < 0.84 && zf > 0.06 && zf < 0.9) {
+		float pillar = abs(fract(lp.z / 1.45) - 0.5);
+		if (pillar < 0.43) {
+			id = 1;
+		} else {
+			col *= 0.25;
+		}
+	}
 	if (id == 0 || id == 9) {
 		// ---------------- bodywork: clear-coated metallic paint
 		rough = id == 0 ? 0.16 : 0.45;
@@ -61,7 +73,7 @@ void fragment() {
 		col *= 0.96 + flake * 0.08;
 		refl = id == 0 ? 0.35 : 0.1;
 		// liveries painted in the shader
-		if (liv == 1 && side && hy > 0.3 && hy < 0.4) {
+		if (liv == 1 && side && hy > 0.22 && hy < 0.31) {
 			// taxi checker band
 			float c = mod(floor(lp.z * 9.0) + floor(lp.y * 9.0), 2.0);
 			col = mix(vec3(0.03), vec3(0.95), c);
@@ -102,11 +114,16 @@ void fragment() {
 		// road grime + contact darkening near the sills
 		col *= mix(0.55, 1.0, smoothstep(0.0, 0.3, hy));
 	} else if (id == 1) {
-		// ---------------- tinted glass
-		col = vec3(0.03, 0.045, 0.07);
-		rough = 0.04;
-		metal = 0.5;
-		refl = 0.45;
+		// ---------------- tinted glass: dark cabin seen through it, the sky
+		// mirrored in the upper part (baked in, so it works without reflections)
+		float up = clamp(ln.y * 0.5 + 0.5, 0.0, 1.0);
+		float band = smoothstep(0.55, 0.9, hy);
+		col = mix(vec3(0.025, 0.035, 0.05), vec3(0.3, 0.38, 0.48), clamp(band * 0.55 + up * 0.35, 0.0, 1.0));
+		// a soft diagonal highlight streak
+		col += vec3(0.12) * smoothstep(0.06, 0.0, abs(fract(lp.z * 0.35 + lp.y * 0.6) - 0.5) - 0.2);
+		rough = 0.05;
+		metal = 0.3;
+		refl = 0.35;
 	} else if (id == 2) {
 		// ---------------- rubber with tread grooves
 		col = vec3(0.045);
@@ -149,6 +166,7 @@ void fragment() {
 	}
 
 	// fake environment reflection: sky above, dark ground below, bright horizon band
+	refl *= reflections;
 	if (refl > 0.0) {
 		vec3 r = (INV_VIEW_MATRIX * vec4(reflect(-VIEW, NORMAL), 0.0)).xyz;
 		vec3 env = mix(vec3(0.25, 0.22, 0.28), vec3(0.75, 0.82, 1.0), smoothstep(-0.2, 0.5, r.y));

@@ -1,6 +1,23 @@
-# SKYLINE RUSH v10: endless runner with 9 tracks, 5 runners, 3 rideable vehicles, PC + mobile (Godot 4.3+, PC)
+# SKYLINE RUSH v11: endless runner with 9 tracks, 5 runners, 3 rideable vehicles, PC + mobile (Godot 4.3+, PC)
 
 Open Godot 4.3 or newer → Import → choose `project.godot` → press F5.
+
+## What's new in v11
+- **Mobile: bright again and much lighter** (the MOBILE quality preset is now a "lite" mode):
+  - brighter exposure and ambient light, so it keeps the bright look without bloom
+  - no shadows, no glow or bloom, no full-screen filter (speed blur, aberration and vignette), no FXAA, no screen-space or car reflections, no reflection probes, no decorative lights
+  - fewer props, clouds and far scenery; low-poly spheres, cylinders and rings; plain windows and no shop interiors on buildings; small scenery stops drawing beyond 70 m
+  - shorter fog distance: nothing is drawn past 160 m
+  - result: 55–80 % fewer triangles and about 60 % fewer draw calls per frame
+  - renders at **full resolution**; auto-performance lowers it only if the frame rate drops
+- **Vehicles fixed and made more realistic:**
+  - every body face was lit from the wrong side (inverted normals), and the mirrored parts (one mirror, light, tyre and window of each pair) plus the added plates, lights and ladders were wound inside-out; all flipped faces are fixed
+  - real-world paints, weighted towards silver, white, black and grey as in real traffic
+  - glass shows the sky mirrored in it
+  - buses get a proper band of side windows
+  - lettering is readable on both sides
+- **Warp tunnels (teleporters):** the roof is a walkway you can jump onto and run along. Run into the entrance to warp; your controls are locked until you come out on the other side.
+- **Grind rails:** a bright orange pipe on yellow-and-black posts, with a lit strip on the road, an entry ramp and a GRIND sign. Running into a rail hops you onto it; rails never kill you.
 
 ## What's new in v10
 - **Realistic vehicles:** every car, van, bus and truck is textured by the new `shaders/car_kit.gdshader`:

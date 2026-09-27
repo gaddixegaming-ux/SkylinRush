@@ -36,6 +36,9 @@ var menu_col: VBoxContainer
 var pause_panel: Control
 var over: Control
 var post_mat: ShaderMaterial
+var post_rect: ColorRect      # full-screen post filter (off in lite / mobile mode)
+var flash_rect: ColorRect     # cheap flash overlay used instead of the filter
+var lite := false
 var font: SystemFont
 var font_reg: SystemFont
 
@@ -330,6 +333,12 @@ func _ready() -> void:
 	post_mat.shader = POSTFX
 	post.material = post_mat
 	post_layer.add_child(post)
+	post_rect = post
+	flash_rect = ColorRect.new()
+	flash_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	flash_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flash_rect.visible = false
+	post_layer.add_child(flash_rect)
 
 	root = Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1774,6 +1783,15 @@ func set_touch_keys(on: bool) -> void:
 		slots[i].queue_redraw()
 
 
+## Lite (mobile) mode: no full-screen post filter (blur / aberration /
+## vignette cost a screen copy every frame); flashes use a plain overlay.
+func set_lite(on: bool) -> void:
+	lite = on
+	post_rect.visible = not on
+	if not on:
+		flash_rect.visible = false
+
+
 func show_fps(on: bool) -> void:
 	if fps_lbl:
 		fps_lbl.visible = on
@@ -1784,8 +1802,12 @@ func _process(delta: float) -> void:
 	if fps_lbl and fps_lbl.visible:
 		fps_lbl.text = "%d FPS" % Engine.get_frames_per_second()
 	_flash = maxf(0.0, _flash - delta * 2.5)
-	post_mat.set_shader_parameter("flash", _flash)
-	post_mat.set_shader_parameter("flash_color", _flash_color)
+	if lite:
+		flash_rect.visible = _flash > 0.01
+		flash_rect.color = Color(_flash_color, clampf(_flash, 0.0, 1.0))
+	else:
+		post_mat.set_shader_parameter("flash", _flash)
+		post_mat.set_shader_parameter("flash_color", _flash_color)
 	_coin_pop = maxf(0.0, _coin_pop - delta * 6.0)
 	if markers_layer and not markers_layer.markers.is_empty():
 		markers_layer.t = _t

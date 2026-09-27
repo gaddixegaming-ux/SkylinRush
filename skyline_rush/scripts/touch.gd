@@ -113,6 +113,8 @@ func _input(event: InputEvent) -> void:
 
 ## Two quick taps = HOOK (grapple).
 func _tap(pos: Vector2) -> void:
+	if game.controls_locked():
+		return
 	var now := Time.get_ticks_msec()
 	if now - last_tap <= DOUBLE_TAP and pos.distance_to(last_tap_pos) <= TAP_SLOP:
 		last_tap = -10000
@@ -123,6 +125,8 @@ func _tap(pos: Vector2) -> void:
 
 
 func _swipe(d: Vector2) -> void:
+	if game.controls_locked():
+		return
 	if absf(d.x) > absf(d.y):
 		game._on_dir(1 if d.x > 0.0 else -1)
 	elif d.y < 0.0:

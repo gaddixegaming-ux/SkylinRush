@@ -88,6 +88,7 @@ func _initialize() -> void:
 	await _wait(1.5)
 	await _shot("skyway")
 	await _test_v9()
+	await _test_v11()
 	# death + game over
 	main.grace = 0.0
 	main._crash("WIPED OUT")
@@ -182,6 +183,7 @@ func _test_v9() -> void:
 	print("enemies: blocker=%s hunters=%d" % [main.enemies.blocker != null, main.enemies.hunters.size()])
 	main.enemies.clear()
 	# ---- touch: a double tap fires the HOOK
+	main.warp_t = 0.0   # (a warp locks the controls)
 	main.touch.set_enabled(true)
 	for k in 2:
 		for pr in [true, false]:
@@ -351,6 +353,65 @@ func _autopilot() -> void:
 		p.release_jump()
 	elif need == "slide" and p.grounded:
 		p.press_slide()
+
+
+## v11: grind rails never kill, warp tunnel roof is walkable, controls lock while warping.
+func _clear_ahead() -> void:
+	for c in main.world.objects.get_children():
+		c.queue_free()
+	await process_frame
+
+
+func _test_v11() -> void:
+	main.start_zone = 2
+	main._start_game()
+	main.world.allow_tunnels = false
+	await _wait(0.5)
+	# ---- rail in your lane, running straight into its front end
+	await _clear_ahead()
+	main.grace = 0.0
+	var ln: int = main.player.lane
+	main.world._spawn_rail(ln, -16.0)
+	var top := 0.0
+	var el := 0.0
+	while el < 1.6 and main.state == main.State.PLAYING:
+		main.grace = 0.0
+		await process_frame
+		el += minf(main.get_process_delta_time(), 0.05)
+		top = maxf(top, main.player.position.y)
+	print("rail: alive=%s  rode it (max y %.2f)" % [main.state == main.State.PLAYING, top])
+	# ---- land on the warp tunnel roof from above: no warp
+	await _clear_ahead()
+	main.grace = 9999.0
+	await _wait(0.6)
+	main.world._spawn_tunnel(-3.0, main.player.lane)
+	main.player.position.y = 3.3
+	main.player.vy = 0.0
+	main.player.grounded = false
+	var on_roof := false
+	el = 0.0
+	while el < 1.2:
+		await process_frame
+		el += minf(main.get_process_delta_time(), 0.05)
+		if absf(main.player.floor_y - main.world.TUNNEL_TOP) < 0.01 and main.player.grounded:
+			on_roof = true
+	print("tunnel roof: stood on it=%s  warped=%s" % [on_roof, main.warp_t > 0.0])
+	# ---- run into it at ground level: warp + controls locked until out
+	await _clear_ahead()
+	await _wait(1.0)
+	main.world._spawn_tunnel(-4.0, main.player.lane)
+	el = 0.0
+	while el < 1.0 and main.warp_t <= 0.0:
+		await process_frame
+		el += minf(main.get_process_delta_time(), 0.05)
+	var l0: int = main.player.lane
+	main._on_dir(1 if l0 < 1 else -1)
+	print("tunnel warp: warping=%s  lane locked=%s" % [main.warp_t > 0.0, main.player.lane == l0])
+	await _wait(1.2)
+	var l1: int = main.player.lane
+	main._on_dir(1 if l1 < 1 else -1)
+	print("after warp: controls back=%s" % [main.player.lane != l1])
+	main.world.allow_tunnels = true
 
 
 ## Waits `s` seconds of GAME time (frames are clamped to 0.05 s by main).

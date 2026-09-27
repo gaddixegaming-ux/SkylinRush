@@ -87,6 +87,8 @@ const MAX_LIGHTS := 10
 
 
 func light(p: Node3D, pos: Vector3, c: Color, energy := 2.0, rng := 7.0) -> void:
+	if w.lite:
+		return  # mobile: emissive glow only, no real lights
 	if w.get_tree().get_nodes_in_group("scene_light").size() >= MAX_LIGHTS:
 		return
 	var l := OmniLight3D.new()
@@ -244,7 +246,8 @@ func overhead(z: float, t: int) -> float:
 
 func far(z: float, t: int) -> float:
 	var s := -1.0 if randf() < 0.5 else 1.0
-	far_extras(z - randf_range(0.0, 10.0), t)
+	if not w.lite:
+		far_extras(z - randf_range(0.0, 10.0), t)
 	match t:
 		1: _festival_far(z, s)
 		2: _skate_far(z, s)
@@ -1498,9 +1501,9 @@ func facade_building(z: float, s: float, o: Dictionary) -> float:
 		fbox(n, fc, front, su - sw * 0.5 + k * sw / int(sw / 1.2), 1.55, 0.06, 0.1, 2.4, 0.1, dark)
 	fbox(n, fc, front, su, 2.75, 0.06, sw + 0.2, 0.14, 0.14, dark)
 	fbox(n, fc, front, su, 0.45, 0.07, sw + 0.2, 0.4, 0.12, dark)
-	# a peek inside: counter + shelves
+	# a peek inside: counter + shelves (not in lite / mobile mode)
 	fbox(n, fc, front, su, 0.55, -0.9, sw * 0.8, 1.0, 0.6, M(Color(0.55, 0.38, 0.25)))
-	for k in 3:
+	for k in (0 if w.lite else 3):
 		fbox(n, fc, front, su, 1.0 + k * 0.5, -2.0, sw * 0.9, 0.06, 0.5, M(Color(0.8, 0.8, 0.82)))
 		for j in 5:
 			fbox(n, fc, front, su - sw * 0.35 + j * sw * 0.18, 1.12 + k * 0.5, -2.0, 0.18, 0.2, 0.18, M(pick([Color(1, 0.4, 0.3), Color(0.3, 0.7, 1), Color(1, 0.85, 0.3), Color(0.5, 0.9, 0.5)])))
@@ -1517,7 +1520,7 @@ func facade_building(z: float, s: float, o: Dictionary) -> float:
 	# awning with stripes + valance
 	var aw: Array = o.get("awnings", [[Color(0.9, 0.25, 0.3), Color(0.98, 0.95, 0.9)], [Color(0.2, 0.5, 0.85), Color(0.98, 0.95, 0.9)], [Color(0.2, 0.6, 0.4), Color(0.98, 0.95, 0.9)], [Color(0.95, 0.6, 0.15), Color(0.3, 0.2, 0.15)]])
 	var ac: Array = pick(aw)
-	var strips := 8
+	var strips: int = 4 if w.lite else 8
 	for k in strips:
 		var am := M(ac[k % 2], Color.BLACK, 0, 0.8)
 		var zz := su - sw * 0.5 - 0.1 + (k + 0.5) * (sw + 0.2) / strips
@@ -1547,15 +1550,16 @@ func facade_building(z: float, s: float, o: Dictionary) -> float:
 	var shutters := randf() < 0.4
 	for f in range(1, floors):
 		var y := gh + (f - 1) * fh + 1.55
-		var balcony := randf() < 0.3
+		var balcony: bool = randf() < (0.1 if w.lite else 0.3)
 		for k in cols:
 			var u := (-wd * 0.5 + 1.1 + k * (wd - 2.2) / maxf(1.0, cols - 1)) * -s
 			var lit := night and randf() < 0.6
 			var deco := deco_base.duplicate()
-			deco["lintel"] = randf() < 0.5
-			deco["shutters"] = shutters and not balcony
-			deco["flowers"] = not balcony and randf() < 0.25
-			deco["ac"] = o.get("ac", false) and randf() < 0.3
+			var rich: bool = not w.lite  # lite (mobile): plain windows
+			deco["lintel"] = rich and randf() < 0.5
+			deco["shutters"] = rich and shutters and not balcony
+			deco["flowers"] = rich and not balcony and randf() < 0.25
+			deco["ac"] = rich and o.get("ac", false) and randf() < 0.3
 			window(n, fc, front, u, y, 1.05, 1.45, trim, glass_lit if lit else glass_day, deco)
 		if balcony:
 			var bw := wd * 0.7

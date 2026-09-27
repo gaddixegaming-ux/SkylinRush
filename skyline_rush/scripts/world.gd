@@ -11,7 +11,7 @@ const BATCH_KEYS := ["box", "sphere", "cyl", "pipe", "cone"]
 const ThemesScript := preload("res://scripts/themes.gd")
 const CarModels := preload("res://scripts/car_models.gd")
 const WEAK := ["jump", "crate", "drone", "pop_spikes", "drop"]
-const SOLID := ["car", "speaker", "crate", "platform", "rail", "pop_wall", "drop", "bus"]
+const SOLID := ["car", "speaker", "crate", "platform", "rail", "pop_wall", "drop", "bus", "tunnel"]
 
 const LANE_WIDTH := 2.5
 const TILE := 4.0
@@ -62,6 +62,12 @@ var _meshes := {}
 ## merged into ONE vertex-coloured mesh per parent node (flush_batches). This
 ## cuts draw calls from thousands to a few hundred.
 var batching := false
+var lite := false:       # mobile: sparser props / far scenery / clouds, no decorative lights, low-poly primitives
+	set(v):
+		if v != lite:
+			_meshes.clear()      # rebuild the primitives at the new detail level
+			_prim_cache.clear()
+		lite = v
 var _pending: Array = []
 var _prim_key := {}
 var _prim_cache := {}
@@ -193,24 +199,26 @@ func fill() -> void:
 	for i in 2:
 		while side_cursor[i] > SPAWN_Z:
 			side_cursor[i] -= themes.side(side_cursor[i], -1.0 if i == 0 else 1.0, theme)
+	# lite (mobile): the same kinds of things, just fewer of them
+	var sp := 2.0 if lite else 1.0
 	for i in 2:
 		while prop_cursor[i] > SPAWN_Z:
-			prop_cursor[i] -= themes.props(prop_cursor[i], -1.0 if i == 0 else 1.0, theme)
+			prop_cursor[i] -= themes.props(prop_cursor[i], -1.0 if i == 0 else 1.0, theme) * sp
 	while over_cursor > SPAWN_Z:
-		over_cursor -= themes.overhead(over_cursor, theme)
+		over_cursor -= themes.overhead(over_cursor, theme) * (1.6 if lite else 1.0)
 	while far_cursor > SPAWN_Z:
-		far_cursor -= themes.far(far_cursor, theme)
+		far_cursor -= themes.far(far_cursor, theme) * sp
 	while cloud_cursor > SPAWN_Z:
 		_spawn_clouds(cloud_cursor)
-		cloud_cursor -= randf_range(7.0, 12.0)
+		cloud_cursor -= randf_range(7.0, 12.0) * (2.5 if lite else 1.0)
 	while tower_cursor > SPAWN_Z:
 		if theme == 0:
 			_spawn_tower(tower_cursor)
-		tower_cursor -= randf_range(24.0, 38.0)
+		tower_cursor -= randf_range(24.0, 38.0) * sp
 	while big_cursor > SPAWN_Z:
 		if theme == 0:
 			_spawn_big(big_cursor)
-		big_cursor -= randf_range(45.0, 70.0)
+		big_cursor -= randf_range(45.0, 70.0) * sp
 	batching = false
 	flush_batches()
 
@@ -1311,6 +1319,9 @@ func _spawn_tunnel(z: float, lane: int) -> void:
 	var n := _obj("tunnel", lane, z, 14.0)
 	n.set_meta("target", target)
 	n.set_meta("hit", false)
+	# the roof is a walkway you can run along (only its top counts as solid;
+	# running in at ground level warps you instead)
+	n.set_meta("box", AABB(Vector3(-1.25, 0.0, -14.4), Vector3(2.5, TUNNEL_TOP, 14.6)))
 	var a: Color = ThemesScript.ACCENT[target]
 	var shell := mat(Color(0.14, 0.1, 0.2), Color.BLACK, 0.0, 0.4, 0.5, 0.35, 0.0, a)
 	# sized to fit inside its own lane (1.25 m each side) so it never covers
@@ -1326,6 +1337,14 @@ func _spawn_tunnel(z: float, lane: int) -> void:
 			rib.rotation = Vector3(0, 0, ang)
 	for sd in [-1.0, 1.0]:
 		_box(n, Vector3(0.16, cy, 14.0), Vector3(sd * 1.12, cy * 0.5, -6.0), shell, false)
+	# roof walkway: flat deck with glowing edge strips and arrows
+	_box(n, Vector3(2.5, 0.16, 14.6), Vector3(0, TUNNEL_TOP - 0.08, -7.1), mat(Color(0.2, 0.18, 0.28), Color.BLACK, 0.0, 0.6, 0.3), true)
+	for sd in [-1.0, 1.0]:
+		_box(n, Vector3(0.12, 0.06, 14.6), Vector3(sd * 1.19, TUNNEL_TOP + 0.02, -7.1), mat(a, a, 3.0, 0.4, 0, 0, 1.0), false)
+	for k in 4:
+		for sd in [-1.0, 1.0]:
+			var ar := _box(n, Vector3(0.7, 0.03, 0.16), Vector3(sd * 0.22, TUNNEL_TOP + 0.01, -1.5 - k * 3.4), mat(Color.WHITE, a, 2.0), false)
+			ar.rotation.y = sd * 0.6
 	var q := MeshInstance3D.new()
 	var qm := QuadMesh.new()
 	qm.size = Vector2(2.3, 2.3)
@@ -1446,17 +1465,33 @@ func qpipe_near(z: float, s: float) -> bool:
 
 func _spawn_rail(lane: int, z: float) -> void:
 	# metal grind rail: jump on and grind (sparks + bonus on a skateboard)
-	var n := _obj("rail", lane, z, 10.5)
+	# (running into it hops you on - it never kills - and it is painted to be
+	# seen from far: glowing orange pipe, striped posts, lit lane under it,
+	# a ramp + GRIND sign at the start)
+	var n := _obj("rail", lane, z, 11.5)
 	n.set_meta("box", AABB(Vector3(-0.3, 0.0, -10.0), Vector3(0.6, 1.0, 20.0)))
-	var metal := mat(Color(0.85, 0.87, 0.95), Color.BLACK, 0.0, 0.15, 0.95, 0.5, 0.0, Color(0.7, 0.9, 1))
-	var post := mat(Color(0.3, 0.3, 0.35), Color.BLACK, 0.0, 0.4, 0.7)
+	var orange := Color(1.0, 0.55, 0.1)
+	var pipe_m := mat(Color(1.0, 0.45, 0.05), orange, 0.5, 0.5, 0.0, 0.3, 0.0, Color(1, 0.9, 0.6))
+	var post_y := mat(Color(1.0, 0.85, 0.15), Color(1.0, 0.7, 0.1), 0.2, 0.5, 0.2)
+	var post_k := mat(Color(0.08, 0.08, 0.1), Color.BLACK, 0.0, 0.6, 0.2)
 	for k in 5:
-		_cyl(n, 0.08, 0.95, Vector3(0, 0.47, 9.4 - k * 4.7), post)
-		_box(n, Vector3(0.5, 0.06, 0.3), Vector3(0, 0.03, 9.4 - k * 4.7), post, false)
+		var pz := 9.4 - k * 4.7
+		for j in 4:
+			_box(n, Vector3(0.18, 0.24, 0.18), Vector3(0, 0.12 + j * 0.24, pz), post_y if j % 2 == 0 else post_k, false)
+		_box(n, Vector3(0.6, 0.06, 0.36), Vector3(0, 0.03, pz), post_k, false)
 	for k in 5:
-		_cyl(n, 0.09, 4.0, Vector3(0, 0.98, 8.0 - k * 4.0), metal, Vector3(PI / 2, 0, 0), true, "pipe")
-	_box(n, Vector3(0.24, 0.04, 20.0), Vector3(0, 1.0, 0), mat(CYAN, CYAN, 1.5, 0.4, 0, 0, 1.0), false)
-	_box(n, Vector3(0.2, 0.9, 0.08), Vector3(0, 0.45, 10.0), mat(Color(1, 0.85, 0.2), Color(1, 0.6, 0.1), 1.5), false)
+		_cyl(n, 0.13, 4.0, Vector3(0, 0.98, 8.0 - k * 4.0), pipe_m, Vector3(PI / 2, 0, 0), true, "pipe")
+	_box(n, Vector3(0.12, 0.04, 20.0), Vector3(0, 1.12, 0), mat(Color(1, 0.9, 0.5), Color(1.0, 0.8, 0.3), 1.0, 0.4, 0, 0, 0.5), false)
+	# lit strip on the road under the rail, so its lane reads from far away
+	_box(n, Vector3(1.6, 0.02, 21.0), Vector3(0, 0.02, 0), mat(Color(0.5, 0.25, 0.04), Color.BLACK, 0.0, 0.9, 0.0, 0.0), false)
+	# entry ramp + sign at the near end
+	for k in 4:
+		var rp := _box(n, Vector3(0.9, 0.08, 0.55), Vector3(0, 0.12 + k * 0.25, 11.9 - k * 0.52), mat(Color(0.62, 0.42, 0.04) if k % 2 == 0 else Color(0.08, 0.08, 0.1), Color.BLACK, 0.0, 0.95, 0.0, 0.0), false)
+		rp.rotation.x = 0.46
+	_box(n, Vector3(1.4, 0.5, 0.08), Vector3(0, 2.0, 10.2), mat(Color(0.1, 0.08, 0.12), orange, 0.4), false)
+	themes.text(n, "GRIND", Vector3(0, 2.0, 10.26), 0.022, Color(1.0, 0.85, 0.3), 2.5)
+	for sd in [-1.0, 1.0]:
+		_box(n, Vector3(0.06, 1.8, 0.06), Vector3(sd * 0.6, 0.9, 10.2), post_k, false)
 
 
 func _spawn_kicker(lane: int, z: float) -> void:
@@ -1599,15 +1634,15 @@ func _mesh(key: String) -> Mesh:
 			var s := SphereMesh.new()
 			s.radius = 1.0
 			s.height = 2.0
-			s.radial_segments = 24
-			s.rings = 12
+			s.radial_segments = 10 if lite else 24
+			s.rings = 5 if lite else 12
 			m = s
 		"cyl":
 			var c := CylinderMesh.new()
 			c.top_radius = 1.0
 			c.bottom_radius = 1.0
 			c.height = 1.0
-			c.radial_segments = 20
+			c.radial_segments = 8 if lite else 20
 			c.rings = 1
 			m = c
 		"pipe":
@@ -1615,15 +1650,15 @@ func _mesh(key: String) -> Mesh:
 			p.top_radius = 1.0
 			p.bottom_radius = 1.0
 			p.height = 1.0
-			p.radial_segments = 12
-			p.rings = 16
+			p.radial_segments = 8 if lite else 12
+			p.rings = 2 if lite else 16
 			m = p
 		"cone":
 			var co := CylinderMesh.new()
 			co.top_radius = 0.0
 			co.bottom_radius = 1.0
 			co.height = 1.0
-			co.radial_segments = 16
+			co.radial_segments = 8 if lite else 16
 			m = co
 		"gem":
 			var g := SphereMesh.new()
@@ -1711,8 +1746,22 @@ func _mi(parent: Node3D, mesh: Mesh, pos: Vector3, m: Material, shadow := true) 
 	mi.extra_cull_margin = 60.0
 	if not shadow:
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_lite_range(mi, parent)
 	parent.add_child(mi)
 	return mi
+
+
+## Lite (mobile): small scenery stops drawing beyond ~70 m and medium pieces
+## beyond ~115 m (the fog is thick there anyway). Gameplay objects never do.
+func _lite_range(mi: MeshInstance3D, parent: Node) -> void:
+	if not lite or mi.mesh == null or parent == objects or objects.is_ancestor_of(parent):
+		return
+	var sz := mi.mesh.get_aabb().size * (parent as Node3D).scale.abs() if parent is Node3D else mi.mesh.get_aabb().size
+	var big := maxf(sz.x, maxf(sz.y, sz.z))
+	if big < 2.5:
+		mi.visibility_range_end = 70.0
+	elif big < 8.0:
+		mi.visibility_range_end = 115.0
 
 
 ## Low-poly copies of the primitives for merged scenery: [verts, normals, indices].
@@ -1725,17 +1774,25 @@ func _prim(mesh: Mesh) -> Array:
 		var sm := SphereMesh.new()
 		sm.radius = 1.0
 		sm.height = 2.0
-		sm.radial_segments = 14
-		sm.rings = 7
+		sm.radial_segments = 8 if lite else 14
+		sm.rings = 4 if lite else 7
 		src = sm
 	elif key == "cyl" or key == "pipe":
 		var cm := CylinderMesh.new()
 		cm.top_radius = 1.0
 		cm.bottom_radius = 1.0
 		cm.height = 1.0
-		cm.radial_segments = 12
+		cm.radial_segments = 6 if lite else 12
 		cm.rings = 1
 		src = cm
+	elif key == "cone" and lite:
+		var co := CylinderMesh.new()
+		co.top_radius = 0.0
+		co.bottom_radius = 1.0
+		co.height = 1.0
+		co.radial_segments = 6
+		co.rings = 1
+		src = co
 	var a := src.surface_get_arrays(0)
 	var out := [a[Mesh.ARRAY_VERTEX], a[Mesh.ARRAY_NORMAL], a[Mesh.ARRAY_INDEX]]
 	_prim_cache[key] = out
@@ -1799,6 +1856,7 @@ func flush_batches() -> void:
 		bm.extra_cull_margin = 60.0
 		if not g[6]:
 			bm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_lite_range(bm, p)
 		(p as Node3D).add_child(bm)
 
 
@@ -1827,8 +1885,8 @@ func _torus(parent: Node3D, inner: float, outer: float, pos: Vector3, m: Materia
 		var t := TorusMesh.new()
 		t.inner_radius = inner
 		t.outer_radius = outer
-		t.rings = 64
-		t.ring_segments = 12
+		t.rings = 24 if lite else 64
+		t.ring_segments = 6 if lite else 12
 		_meshes[key] = t
 	var mi := _mi(parent, _meshes[key], pos, m, false)
 	mi.rotation = rot
@@ -1847,6 +1905,7 @@ var fork_rows := 0
 var rows_since_fork := 0
 var force_fork := false   # tests / events can ask for the next row to be a fork
 var allow_tunnels := true # tests switch warp tunnels off
+const TUNNEL_TOP := 2.55   # height of the warp tunnel's walkable roof
 
 
 func _spawn_fork(z: float) -> float:

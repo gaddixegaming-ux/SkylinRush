@@ -17,6 +17,7 @@ const LobbyScript := preload("res://scripts/lobby.gd")
 const StyleScript := preload("res://scripts/style.gd")
 const EventsScript := preload("res://scripts/events.gd")
 const EnemiesScript := preload("res://scripts/enemies.gd")
+const CarModels := preload("res://scripts/car_models.gd")
 const TouchScript := preload("res://scripts/touch.gd")
 
 const LANE_WIDTH := 2.5
@@ -179,6 +180,8 @@ var enemy_t := 30.0
 var is_mobile := false
 var perf_t := 0.0
 var perf_frames := 0
+var amb_mult := 1.0       # lite (mobile) mode brightens the ambient light
+var amb_base := 1.0
 var perf_level := 0       # auto-performance steps taken (0 = none)
 
 
@@ -757,6 +760,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_on_dir(-1)
 			elif event.is_action_pressed("right"):
 				_on_dir(1)
+			elif controls_locked() and not event.is_action_released("jump"):
+				pass
 			elif event.is_action_pressed("jump"):
 				player.sky_ready = ab_cd[SKY] <= 0.0
 				player.press_jump()
@@ -770,8 +775,14 @@ func _unhandled_input(event: InputEvent) -> void:
 				_use_hook()
 
 
+## While a warp tunnel teleports you, the controls are locked until you
+## come out on the other side.
+func controls_locked() -> bool:
+	return warp_t > 0.0
+
+
 func _on_dir(dir: int) -> void:
-	if player.is_tricking():
+	if player.is_tricking() or controls_locked():
 		return
 	if player.wall_side != 0:
 		if dir == -player.wall_side:
@@ -791,7 +802,7 @@ func _on_dir(dir: int) -> void:
 
 
 func _on_slide() -> void:
-	if player.is_tricking():
+	if player.is_tricking() or controls_locked():
 		return
 	if player.wall_side != 0:
 		player.press_slide()
@@ -870,14 +881,15 @@ func _show_lobby() -> void:
 	stage.visible = state == State.MENU and not has
 	if has:
 		_set_weather("none", false)
-		env.ssr_enabled = true
+		env.ssr_enabled = not world.lite  # (screen-space reflections: never on mobile)
 		var m: Array = LobbyScript.SKY[char_idx]
 		sky_mat.sky_top_color = m[0]
 		sky_mat.sky_horizon_color = m[1]
 		sky_mat.ground_horizon_color = m[1]
 		sun.light_color = m[2]
 		sun.light_energy = m[3]
-		env.ambient_light_energy = m[4]
+		amb_base = m[4]
+		env.ambient_light_energy = amb_base * amb_mult
 	else:
 		_snap_zone(start_zone)
 
@@ -1467,9 +1479,10 @@ func _check_objects(delta: float) -> void:
 				obj.set_meta("hit", true)
 				_portal()
 		elif kind == "tunnel":
+			# run in at ground level = warp; on the roof you just run across it
 			if not obj.get_meta("hit") and obj.position.z > -0.5:
 				obj.set_meta("hit", true)
-				if absf(obj.position.x - player.position.x) < 1.4 and player.position.y < 3.0:
+				if absf(obj.position.x - player.position.x) < 1.4 and player.position.y < WorldScript.TUNNEL_TOP - 0.45:
 					_warp(obj.get_meta("target"))
 		elif kind == "kicker":
 			if not obj.get_meta("hit") and obj.position.z > -1.2 and absf(obj.position.x - player.position.x) < 1.2 \
@@ -1489,6 +1502,12 @@ func _check_objects(delta: float) -> void:
 				_check_close_call(obj)
 			if wb.intersects(pbox):
 				var on_top: bool = kind in WorldScript.SOLID and player.position.y >= wb.end.y - 0.45
+				if not on_top and kind == "rail":
+					# grind rails never kill: running into one hops you up onto it
+					player.mantle(wb.end.y)
+					audio.play("land", 1.3, -4.0)
+					fx.burst(Vector3(obj.position.x, wb.end.y, 0.0), Color(1.0, 0.75, 0.2), 10, 5.0, 0.15, 0.3)
+					on_top = true
 				if not on_top and kind == "bus" and float(obj.get_meta("move", 0.0)) <= 0.0 \
 						and wb.end.z < 1.2 and player.position.y >= wb.end.y - 1.8:
 					# a jump that reaches the back of a parked bus climbs onto its roof
@@ -1658,7 +1677,7 @@ func _on_hit(obj: Node3D, kind: String) -> void:
 
 # ============================================================ abilities
 func _use_dash() -> void:
-	if state != State.PLAYING or player.is_tricking():
+	if state != State.PLAYING or player.is_tricking() or controls_locked():
 		return
 	var p: Vector3 = player.position
 	if player.grounded and player.wall_side == 0 and not player.is_grappling():
@@ -1699,7 +1718,7 @@ func _use_dash() -> void:
 
 ## E: whatever is in reach - grapple anchor, quarter-pipe, or a wall to run on.
 func _use_hook() -> void:
-	if state != State.PLAYING or player.is_tricking() or player.is_grappling():
+	if state != State.PLAYING or player.is_tricking() or player.is_grappling() or controls_locked():
 		return
 	var target = _grapple_target()
 	if target != null:
@@ -2280,7 +2299,8 @@ func _apply_zone(z: Dictionary) -> void:
 	sky_mat.ground_horizon_color = z["hor"]
 	sky_mat.ground_bottom_color = z["ground"]
 	env.fog_light_color = z["fog"]
-	env.ambient_light_energy = z["amb"]
+	amb_base = z["amb"]
+	env.ambient_light_energy = amb_base * amb_mult
 	sun.light_color = z["sun"]
 	sun.light_energy = z["sun_e"]
 	stars_mat.albedo_color.a = z["stars"]
@@ -2295,7 +2315,7 @@ func _apply_zone(z: Dictionary) -> void:
 		sky_mat.sky_horizon_color = (z["hor"] as Color).lerp(Color(0.05, 0.03, 0.1), dk)
 		sky_mat.ground_horizon_color = sky_mat.sky_horizon_color
 		env.fog_light_color = (z["fog"] as Color).lerp(Color(0.02, 0.02, 0.05), dk)
-		env.ambient_light_energy = lerpf(z["amb"], 0.08, dk)
+		env.ambient_light_energy = lerpf(z["amb"] * amb_mult, 0.08, dk)
 		sun.light_energy = lerpf(z["sun_e"], 0.03, dk)
 		stars_mat.albedo_color.a = maxf(z["stars"], dk)
 		env.glow_intensity += dk * 0.5
@@ -2627,9 +2647,25 @@ func _apply_graphics() -> void:
 	if perf_level >= 3:
 		shadow_d = minf(shadow_d, 34.0)
 	sun.directional_shadow_max_distance = shadow_d
-	# phones: the governor drops shadows, then glow, before anything else
-	sun.shadow_enabled = q != "low" and not (q == "mobile" and perf_level >= 2)
-	env.glow_enabled = not (q == "mobile" and perf_level >= 3)
+	# MOBILE quality = lite mode for low-end phones / tablets: no shadows, no
+	# glow, no sky reflections, no post filter, no decorative lights, sparser
+	# scenery; brighter exposure so it keeps the bright look without bloom
+	var lite := q == "mobile"
+	sun.shadow_enabled = q != "low" and not lite
+	env.glow_enabled = not lite
+	# (sky reflections stay: they are one cheap cubemap lookup, and without
+	# them the glossy roads go black)
+	env.tonemap_exposure = 1.6 if lite else 1.05
+	amb_mult = 1.8 if lite else 1.0
+	env.ambient_light_energy = amb_base * amb_mult
+	world.lite = lite
+	hud.set_lite(lite)
+	# lite: shorter view distance - thicker fog up to 150 m, nothing drawn past 160 m
+	env.fog_density = 1.0 if lite else 0.9
+	env.fog_depth_begin = 60.0 if lite else 110.0
+	env.fog_depth_end = 150.0 if lite else 245.0
+	cam.far = 160.0 if lite else 4000.0
+	CarModels.set_reflections(not lite)
 	var vp := get_viewport()
 	if q == "ultra" and perf_level < 3:
 		vp.msaa_3d = Viewport.MSAA_4X
@@ -2637,9 +2673,15 @@ func _apply_graphics() -> void:
 		vp.msaa_3d = Viewport.MSAA_2X
 	else:
 		vp.msaa_3d = Viewport.MSAA_DISABLED
-	if q == "mobile" or q == "low":
+	if q == "mobile":
+		# lite scenes are light enough to render sharp at full resolution with
+		# no filters; only if the frame rate still drops does it render smaller
+		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+		vp.scaling_3d_scale = [1.0, 0.85, 0.75, 0.67][clampi(perf_level, 0, 3)]
+		vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+	elif q == "low":
 		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if forward_plus else Viewport.SCALING_3D_MODE_BILINEAR
-		vp.scaling_3d_scale = 0.85 if q == "low" else maxf(0.5, 0.75 - perf_level * 0.08)
+		vp.scaling_3d_scale = 0.85
 		vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
 	else:
 		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
