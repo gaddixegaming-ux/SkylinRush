@@ -88,6 +88,10 @@ var veh_node: Node3D = null
 var veh_variant := -1
 var sky_ready := true      # set by main from the SKY JUMP cooldown
 var jump_mult := 1.0       # spring shoes power-up
+var grav_mult := 1.0       # GRAVITY SHIFT event
+var air_control := 1.0     # AIR CONTROL upgrade (lane-change snap in the air)
+var aura_fx: CPUParticles3D
+var rainbow_trail := false
 var tap_t := 10.0          # time since the last ground jump (double-tap window)
 var trick_t := -1.0        # quarter-pipe trick timer (-1 = none)
 var trick_side := 0
@@ -458,6 +462,58 @@ func set_shield(on: bool) -> void:
 	shield_bubble.visible = on
 
 
+## Cosmetics from the STYLE shop: trail colours and an aura around the runner.
+func set_cosmetics(trail_a: Color, trail_b: Color, rainbow: bool, aura_id: String, aura_a: Color, aura_b: Color) -> void:
+	rainbow_trail = rainbow
+	var grad := Gradient.new()
+	grad.set_color(0, Color(trail_a, 0.9))
+	grad.set_color(1, Color(trail_b, 0.0))
+	trail.color_ramp = grad
+	if aura_fx == null:
+		aura_fx = CPUParticles3D.new()
+		aura_fx.amount = 28
+		aura_fx.lifetime = 0.9
+		aura_fx.local_coords = true
+		aura_fx.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+		aura_fx.emission_sphere_radius = 0.7
+		aura_fx.position = Vector3(0, 1.0, 0)
+		aura_fx.gravity = Vector3(0, 1.5, 0)
+		aura_fx.initial_velocity_min = 0.2
+		aura_fx.initial_velocity_max = 0.8
+		aura_fx.scale_amount_min = 0.5
+		aura_fx.scale_amount_max = 1.2
+		var bm := SphereMesh.new()
+		bm.radius = 0.05
+		bm.height = 0.1
+		bm.radial_segments = 6
+		bm.rings = 3
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.vertex_color_use_as_albedo = true
+		m.albedo_color = Color(2.0, 2.0, 2.0)
+		bm.material = m
+		aura_fx.mesh = bm
+		add_child(aura_fx)
+	aura_fx.emitting = aura_id != "none"
+	var ag := Gradient.new()
+	ag.set_color(0, Color(aura_a, 0.9))
+	ag.set_color(1, Color(aura_b, 0.0))
+	aura_fx.color_ramp = ag
+	match aura_id:
+		"storm":
+			aura_fx.gravity = Vector3(0, 0, 0)
+			aura_fx.initial_velocity_max = 2.5
+		"blaze":
+			aura_fx.gravity = Vector3(0, 4.0, 0)
+			aura_fx.initial_velocity_max = 1.0
+		"petal":
+			aura_fx.gravity = Vector3(0, -1.0, 0)
+		_:
+			aura_fx.gravity = Vector3(0, 1.5, 0)
+			aura_fx.initial_velocity_max = 0.8
+
+
 func set_aura(on: bool) -> void:
 	aura_bubble.visible = on
 
@@ -578,7 +634,7 @@ func tick(delta: float, speed: float, running: bool) -> void:
 		target = wall_side * WALL_X
 	elif anchor != null:
 		target = anchor.position.x
-	var k := LANE_K * (2.5 if air_dash_t > 0.0 else 1.0)
+	var k := LANE_K * (2.5 if air_dash_t > 0.0 else 1.0) * (air_control if not grounded else 1.0)
 	var steps := maxi(1, ceili(delta / 0.008))
 	var h := delta / steps
 	for _i in steps:
@@ -628,7 +684,7 @@ func tick(delta: float, speed: float, running: bool) -> void:
 		else:
 			if grounded and floor_y > position.y and floor_y - position.y < 1.3 and vy <= 0.5:
 				position.y = floor_y  # step up onto a rising floor (bus ramp)
-			var g := GRAVITY
+			var g := GRAVITY * grav_mult
 			if vy < 0.0:
 				g *= FALL_MULT
 			elif not jump_held:
@@ -815,6 +871,10 @@ func _finish_anim(delta: float, speed: float, running: bool) -> void:
 		else:
 			rig.play_hobby(delta)
 	trail.emitting = running and (grounded or wall_side != 0 or glow > 0.3 or anchor != null)
+	if rainbow_trail and trail.color_ramp:
+		var hue := fmod(anim_t * 0.02, 1.0)
+		trail.color_ramp.set_color(0, Color.from_hsv(hue, 0.8, 1.0, 0.9))
+		trail.color_ramp.set_color(1, Color.from_hsv(fmod(hue + 0.3, 1.0), 0.8, 1.0, 0.0))
 	trail.initial_velocity_min = speed
 	trail.initial_velocity_max = speed
 	trail.scale_amount_min = 0.6 + glow

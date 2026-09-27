@@ -23,7 +23,7 @@ const STREET := {
 	6: {"deck": Color(0.74, 0.7, 0.72), "deck2": Color(0.7, 0.66, 0.69), "dash": Color(1.0, 0.75, 0.86), "dash_e": 0.35,
 		"curb": Color(0.42, 0.6, 0.38), "walk": Color(0.82, 0.77, 0.73), "ground": Color(0.55, 0.72, 0.45), "rough": 0.85, "metal": 0.0},
 	7: {"deck": Color(0.8, 0.54, 0.4), "deck2": Color(0.72, 0.47, 0.35), "dash": Color(1.0, 0.9, 0.5), "dash_e": 1.2,
-		"curb": Color(0.95, 0.3, 0.36), "walk": Color(0.96, 0.86, 0.76), "ground": Color(0.42, 0.28, 0.42), "rough": 0.7, "metal": 0.0},
+		"curb": Color(0.95, 0.3, 0.36), "walk": Color(0.96, 0.86, 0.76), "ground": Color(0.78, 0.55, 0.66), "rough": 0.7, "metal": 0.0},
 }
 const PINK := Color(1.0, 0.3, 0.75)
 const CYAN := Color(0.3, 0.9, 1.0)
@@ -118,7 +118,7 @@ func build_tile(n: Node3D, t: int, idx: int) -> void:
 	var s: Dictionary = STREET[t]
 	var deck: Color = s["deck"] if idx % 2 == 0 else s["deck2"]
 	box(n, Vector3(8.4, 0.5, TILE), Vector3(0, -0.25, 0), M(deck, Color.BLACK, 0.0, s["rough"], s["metal"], 0.03), false)
-	box(n, Vector3(160.0, 0.4, TILE), Vector3(0, -0.62, 0), M(s["ground"], Color.BLACK, 0.0, 0.95, 0.0, 0.0))
+	_ground(n, s["ground"])
 	var curb := M(s["curb"], Color.BLACK, 0.0, 0.7)
 	var walk := M(s["walk"], Color.BLACK, 0.0, s["rough"] + 0.1, s["metal"] * 0.5)
 	for sd in [-1.0, 1.0]:
@@ -156,6 +156,14 @@ func build_tile(n: Node3D, t: int, idx: int) -> void:
 			var bulb: Color = [Color(1, 0.85, 0.4), Color(1, 0.4, 0.5), Color(0.5, 0.9, 1)][idx % 3]
 			for sd in [-1.0, 1.0]:
 				sph(n, 0.13, Vector3(sd * 4.37, 0.25, 0), G(bulb, 4.0, 1.0))
+
+
+## Land on both sides of the road, flush with the base of the buildings (y = 0)
+## so nothing beside the road floats.
+func _ground(n: Node3D, c: Color) -> void:
+	var gm := M(c, Color.BLACK, 0.0, 0.95, 0.0, 0.0)
+	for sd in [-1.0, 1.0]:
+		box(n, Vector3(76.0, 0.6, TILE), Vector3(sd * 42.2, -0.32, 0), gm)
 
 
 func _tile_sky(n: Node3D, idx: int) -> void:
@@ -1267,7 +1275,7 @@ func skate_extra(z: float, s: float) -> float:
 func _highway_tile(n: Node3D, idx: int) -> void:
 	var asphalt := Color(0.2, 0.2, 0.23) if idx % 2 == 0 else Color(0.21, 0.21, 0.24)
 	box(n, Vector3(8.4, 0.5, TILE), Vector3(0, -0.25, 0), M(asphalt, Color.BLACK, 0.0, 0.85, 0.0, 0.02))
-	box(n, Vector3(160.0, 0.4, TILE), Vector3(0, -0.62, 0), M(Color(0.55, 0.5, 0.35), Color.BLACK, 0.0, 0.95))
+	_ground(n, Color(0.55, 0.5, 0.35))
 	# shoulders + solid yellow / white edge lines
 	for sd in [-1.0, 1.0]:
 		box(n, Vector3(2.2, 0.48, TILE), Vector3(sd * 5.3, -0.24, 0), M(Color(0.28, 0.28, 0.3), Color.BLACK, 0.0, 0.9))

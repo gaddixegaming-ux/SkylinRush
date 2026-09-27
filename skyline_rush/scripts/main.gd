@@ -14,6 +14,10 @@ const RigScript := preload("res://characters/character_rig.gd")
 const ProgressScript := preload("res://scripts/progress.gd")
 const VehScript := preload("res://scripts/vehicles.gd")
 const LobbyScript := preload("res://scripts/lobby.gd")
+const StyleScript := preload("res://scripts/style.gd")
+const EventsScript := preload("res://scripts/events.gd")
+const EnemiesScript := preload("res://scripts/enemies.gd")
+const TouchScript := preload("res://scripts/touch.gd")
 
 const LANE_WIDTH := 2.5
 const START_SPEED := 16.0
@@ -148,6 +152,24 @@ var lobby: Node3D
 var splash: Control
 var stage_ring: MeshInstance3D
 var stage_mats: Array = []
+# ---- v9
+var style                 # style.gd (STYLE / momentum multiplier)
+var events                # events.gd (random events)
+var enemies               # enemies.gd
+var touch                 # touch.gd (mobile swipe + buttons)
+var run_frags := 0
+var run_keys := 0
+var run_artifacts: Array = []
+var run_missions: Array = []
+var run_rank := 0
+var route := ""           # "high" / "under" while on a branch route
+var head_start := 0.0     # metres of HEAD START boost left
+var mission_t := 0.0
+var enemy_t := 30.0
+var is_mobile := false
+var perf_t := 0.0
+var perf_frames := 0
+var perf_level := 0       # auto-performance steps taken (0 = none)
 
 
 # ============================================================ setup
@@ -172,6 +194,7 @@ func _ready() -> void:
 	player.jumped.connect(_on_jumped)
 	player.landed.connect(_on_landed)
 	player.slid.connect(func():
+		_style_move("slide")
 		if player.vehicle == "moto" or player.vehicle == "hover":
 			audio.play("grind", 0.55, -3.0)
 			audio.play("dash", 0.8, -8.0)
@@ -209,12 +232,33 @@ func _ready() -> void:
 	hud.garage_tab.connect(_garage_tab)
 	hud.garage_item.connect(_garage_item)
 	hud.upgrade_buy.connect(_buy_upgrade)
+	hud.frag_buy.connect(_buy_frag_upgrade)
+	hud.cosmetic_pick.connect(_pick_cosmetic)
+	hud.setting_changed.connect(_change_setting)
+
+	style = StyleScript.new()
+	events = EventsScript.new()
+	events.setup(self)
+	enemies = EnemiesScript.new()
+	add_child(enemies)
+	enemies.setup(self, world)
+	enemies.process_mode = Node.PROCESS_MODE_PAUSABLE
+	is_mobile = OS.has_feature("mobile") or "--mobile" in OS.get_cmdline_user_args() \
+			or bool(ProjectSettings.get_setting("skyline/mobile_build", false))
+	if is_mobile and not prog.settings.has("_mobile_init"):
+		prog.settings["touch"] = true
+		prog.settings["quality"] = "mobile"
+		prog.settings["_mobile_init"] = true
+	touch = TouchScript.new()
+	touch.game = self
+	hud.root.add_child(touch)
 
 	for n in [world, fx, player, cam]:
 		n.process_mode = Node.PROCESS_MODE_PAUSABLE
 	zone_cur = ZONES[0].duplicate()
 	_apply_zone(zone_cur)
 	_native_display()
+	_apply_settings()
 	_build_stage()
 	lobby = LobbyScript.new()
 	add_child(lobby)
@@ -499,7 +543,7 @@ func _set_weather(kind: String, wet: bool) -> void:
 	match kind:
 		"rain":
 			bm.size = Vector3(0.025, 0.9, 0.025)
-			weather.amount = 320
+			weather.amount = 160 if is_mobile else 320
 			weather.lifetime = 0.55
 			weather.position = Vector3(0, 9.0, -9.0)
 			weather.emission_box_extents = Vector3(16, 1, 14)
@@ -557,6 +601,7 @@ func _setup_input() -> void:
 		"pause": [KEY_ESCAPE, KEY_P], "confirm": [KEY_ENTER, KEY_SPACE],
 		"music": [KEY_M], "fullscreen": [KEY_F11], "controls": [KEY_TAB],
 		"revive": [KEY_R], "garage": [KEY_G], "upgrades": [KEY_U],
+		"customize": [KEY_C], "records": [KEY_H], "settings": [KEY_O],
 	}
 	var pads := {
 		"left": [JOY_BUTTON_DPAD_LEFT], "right": [JOY_BUTTON_DPAD_RIGHT],
@@ -597,8 +642,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	match state:
 		State.MENU:
 			if panel != "":
-				if event.is_action_pressed("pause") or event.is_action_pressed("garage") and panel == "garage" \
-						or event.is_action_pressed("upgrades") and panel == "upgrades":
+				var closes: bool = event.is_action_pressed("pause") or (InputMap.has_action(panel) and event.is_action_pressed(panel))
+				if closes:
 					_open_panel("")
 				elif panel == "garage" and event.is_action_pressed("left"):
 					_garage_tab(VehScript.TYPES[posmod(VehScript.TYPES.find(garage_type) - 1, 3)])
@@ -613,6 +658,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				_open_panel("garage")
 			elif event.is_action_pressed("upgrades"):
 				_open_panel("upgrades")
+			elif event.is_action_pressed("customize"):
+				_open_panel("customize")
+			elif event.is_action_pressed("records"):
+				_open_panel("records")
+			elif event.is_action_pressed("settings"):
+				_open_panel("settings")
 			elif event.is_action_pressed("ab_dash"):
 				_select_char(-1)
 			elif event.is_action_pressed("ab_hook"):
@@ -696,6 +747,11 @@ func _enter_menu() -> void:
 	world.visible = false
 	world.speed = MENU_SPEED
 	world.theme = start_zone
+	if events:
+		events.reset()
+		enemies.clear()
+		player.grav_mult = 1.0
+		audio.set_rate(1.0)
 	world.reset(false)
 	player.reset()
 	cam.mode = CamScript.Mode.MENU
@@ -821,6 +877,23 @@ func _start_game() -> void:
 	world.reset(true)
 	player.reset()
 	_clear_abilities()
+	style.reset()
+	style.window = prog.frag_value("style_keep")
+	events.reset()
+	enemies.clear()
+	enemy_t = randf_range(25.0, 40.0)
+	run_frags = 0
+	run_keys = 0
+	run_artifacts.clear()
+	run_missions.clear()
+	run_rank = 0
+	route = ""
+	mission_t = 0.0
+	head_start = prog.frag_value("start_boost")
+	prog.start_run()
+	player.grav_mult = 1.0
+	player.air_control = prog.frag_value("air_control") / 100.0
+	_apply_cosmetics()
 	audio.set_muffled(false)
 	cam.start_play()
 	if not from_menu:
@@ -838,6 +911,9 @@ func _start_game() -> void:
 	audio.play("portal", 1.2, -6.0)
 	_update_vehicle_zone(true)
 	audio.play_zone(start_zone)
+	if head_start > 0.0:
+		grace = 3.0
+		hud.popup("HEAD START!  %d m" % int(head_start), GOLD, 50)
 
 
 func _set_paused(on: bool) -> void:
@@ -874,6 +950,17 @@ func _crash(title: String, from_fall := false) -> void:
 	if final > prog.best:
 		prog.best = final
 		new_best = true
+	enemies.clear()
+	if events.current != "":
+		events.reset()
+	player.grav_mult = 1.0
+	audio.set_rate(1.0)
+	_mission("coins", gold, true)
+	_mission("dist", int(distance), true)
+	_mission("score", final, true)
+	run_rank = prog.add_score(final, int(distance), RigScript.CHARACTERS[char_idx]["name"], ZONES[zone_idx]["name"])
+	prog.stat_add("runs")
+	prog.stat_add("dist", int(distance))
 	_bank()
 
 
@@ -890,6 +977,8 @@ func _show_game_over() -> void:
 		"title": death_title, "score": int(score), "distance": int(distance), "gold": gold,
 		"close": close_calls, "best": prog.best, "new_best": new_best, "wallet": prog.wallet,
 		"revive": prog.wallet >= revive_cost, "revive_cost": revive_cost,
+		"rank": run_rank, "style": StyleScript.MULTS[style.best_tier], "frags": run_frags,
+		"missions": run_missions.map(func(m): return m["text"]), "artifacts": run_artifacts,
 	})
 
 
@@ -906,6 +995,11 @@ func _open_panel(p: String) -> void:
 		player.set_vehicle("")
 		player.set_props(true)
 		hud.show_panel("upgrades", _upgrade_data())
+	elif p == "customize" or p == "records" or p == "settings":
+		player.set_vehicle("")
+		player.set_props(true)
+		var d: Dictionary = _custom_data() if p == "customize" else (_records_data() if p == "records" else _settings_data())
+		hud.show_panel(p, d)
 	else:
 		player.set_vehicle("")
 		player.set_props(true)
@@ -965,7 +1059,13 @@ func _upgrade_data() -> Dictionary:
 		rows.append({"id": u["id"], "name": u["name"], "desc": u["desc"], "level": l, "max": ProgressScript.MAX_LEVEL,
 			"cost": prog.upgrade_cost(u["id"]), "now": u["vals"][l], "next": u["vals"][mini(l + 1, ProgressScript.MAX_LEVEL)],
 			"unit": u["unit"], "color": u["color"]})
-	return {"rows": rows, "wallet": prog.wallet}
+	var frows := []
+	for u in ProgressScript.FRAG_UPGRADES:
+		var l: int = prog.frag_level(u["id"])
+		frows.append({"id": u["id"], "name": u["name"], "desc": u["desc"], "level": l, "max": ProgressScript.MAX_LEVEL,
+			"cost": prog.frag_cost(u["id"]), "now": u["vals"][l], "next": u["vals"][mini(l + 1, ProgressScript.MAX_LEVEL)],
+			"unit": u["unit"], "color": u["color"]})
+	return {"rows": rows, "frag_rows": frows, "fragments": prog.fragments, "wallet": prog.wallet}
 
 
 # ============================================================ main loop
@@ -994,6 +1094,7 @@ func _process(delta: float) -> void:
 			if dead_timer > 1.1 and not hud.is_over_visible():
 				_show_game_over()
 
+	_perf_governor(delta)
 	_update_curve(delta)
 	_update_zone(delta)
 	world.update_fx(delta, beat)
@@ -1022,6 +1123,21 @@ func _play_step(delta: float) -> void:
 	if coin_streak_t <= 0.0:
 		coin_streak = 0
 	_tick_flow(delta)
+	style.tick(delta)
+	events.tick(delta)
+	enemies.tick(delta, dz)
+	_tick_enemy_spawns(delta)
+	if head_start > 0.0:
+		head_start -= dz
+		grace = maxf(grace, 0.3)
+		if head_start <= 0.0:
+			hud.popup("GO GO GO!", CYAN, 44)
+	mission_t -= delta
+	if mission_t <= 0.0:
+		mission_t = 0.5
+		_mission("coins", gold, true)
+		_mission("dist", int(distance), true)
+		_mission("score", int(score), true)
 	_tick_powers(delta)
 	_tick_warp(delta)
 	_update_traps(delta, dz / maxf(delta, 0.001))
@@ -1070,6 +1186,7 @@ func _play_step(delta: float) -> void:
 	_check_objects(delta)
 	if state != State.PLAYING:
 		return
+	_update_route()
 
 	var km := int(distance / 1000.0)
 	if km > last_km:
@@ -1093,7 +1210,7 @@ func _update_hud_state() -> void:
 			"active_ratio": player.air_dash_t / 0.28, "label": "AIR DASH"})
 	else:
 		ab.append({"ready": ab_cd[DASH] <= 0.0 and player.grounded, "cd_ratio": ab_cd[DASH] / dash_cd, "cd_left": ab_cd[DASH],
-			"active_ratio": ab_active[DASH] / DASH_DUR, "label": "DASH"})
+			"active_ratio": ab_active[DASH] / prog.frag_value("dash_power"), "label": "DASH"})
 	# E: grapple / quarter-pipe / wall run, whatever is in reach
 	var hook_label := "GRAPPLE"
 	var hook_ready := false
@@ -1128,6 +1245,10 @@ func _update_hud_state() -> void:
 		"kmh": int(speed * _speed_mult() * 9.0),
 		"speed_ratio": clampf((speed * _speed_mult() - START_SPEED) / (MAX_SPEED - START_SPEED), 0.0, 1.0),
 		"flow": flow, "flow_tier": flow_tier, "abilities": ab, "powers": powers, "vehicle": veh,
+		"style_mult": style.mult(), "style_prog": style.progress(), "style_chain": style.chain_text(),
+		"style_tier": style.tier, "event": (EventsScript.EVENTS[events.current]["name"] if events.current != "" else ""),
+		"event_t": events.time_left(), "event_col": (EventsScript.EVENTS[events.current]["col"] if events.current != "" else Color.WHITE),
+		"frags": run_frags, "keys": run_keys, "route": route,
 		"zone": ZONES[zone_idx]["name"], "next_zone": ZONES[_next_zone()]["name"], "zone_prog": zprog,
 		"accent": ThemesScript.ACCENT[zone_idx],
 	})
@@ -1153,6 +1274,7 @@ func _update_hud_state() -> void:
 			if not cam.is_position_behind(tp):
 				var tg: int = obj.get_meta("target")
 				markers.append({"pos": cam.unproject_position(tp), "color": ThemesScript.ACCENT[tg], "text": "WARP TO  " + ZONES[tg]["name"], "big": true})
+	markers.append_array(enemies.markers(cam))
 	hud.set_markers(markers)
 	var prompt := ""
 	if player.wall_side != 0:
@@ -1261,6 +1383,16 @@ func _check_objects(delta: float) -> void:
 		elif kind == "vehicle":
 			if obj.position.distance_to(pc) < 1.8:
 				_gain_vehicle(obj)
+		elif kind == "pickup":
+			if magnet and obj.get_meta("ctype") != "artifact" and obj.position.z > -20.0 and obj.position.z < 4.0 and absf(obj.position.x - pc.x) < 7.0:
+				obj.position = obj.position.move_toward(pc, (30.0 + speed) * delta)
+			if obj.position.distance_to(pc) < 1.5:
+				_gain_pickup(obj)
+		elif kind == "shortcut":
+			if not obj.get_meta("hit") and obj.position.z > -0.5:
+				obj.set_meta("hit", true)
+				if absf(obj.position.x - player.position.x) < 1.4 and player.position.y < 3.0:
+					_shortcut()
 		elif kind == "portal":
 			if not obj.get_meta("hit") and obj.position.z > 0.0:
 				obj.set_meta("hit", true)
@@ -1301,7 +1433,7 @@ func _check_objects(delta: float) -> void:
 
 
 func _collect_coin(obj: Node3D) -> void:
-	var v := 2 if pw["double"] > 0.0 else 1
+	var v: int = (2 if pw["double"] > 0.0 else 1) * int(obj.get_meta("value", 1)) * events.reward_mult()
 	gold += v
 	coin_streak += 1
 	coin_streak_t = 0.6
@@ -1360,7 +1492,7 @@ func _check_close_call(obj: Node3D) -> void:
 		close_calls += 1
 		var pts := 50 * _score_mult()
 		score += pts
-		_add_flow(12.0)
+		_add_flow(12.0, "close")
 		hud.popup("CLOSE CALL!  +%d" % pts, CYAN, 42)
 		audio.play("close")
 		cam.punch_fov(5.0)
@@ -1369,7 +1501,7 @@ func _check_close_call(obj: Node3D) -> void:
 func _portal() -> void:
 	var pts := 250 * _score_mult()
 	score += pts
-	_add_flow(20.0)
+	_add_flow(20.0, "boost")
 	portal_boost = 1.6
 	cam.punch_fov(14.0)
 	cam.kick(Vector3(0, 0, 1.4))
@@ -1382,7 +1514,7 @@ func _portal() -> void:
 
 func _boost_pad() -> void:
 	portal_boost = 1.2
-	_add_flow(10.0)
+	_add_flow(10.0, "boost")
 	cam.punch_fov(10.0)
 	cam.kick(Vector3(0, 0, 1.0))
 	audio.play("portal", 1.5, -4.0)
@@ -1400,11 +1532,13 @@ func _on_hit(obj: Node3D, kind: String) -> void:
 		cam.add_trauma(0.3)
 		cam.kick(Vector3(0, 0, -0.5))
 		audio.play("smash", randf_range(0.9, 1.1))
+		_mission("smash", 1)
 		var pts := 30 * _score_mult()
 		score += pts
-		_add_flow(8.0)
+		_add_flow(8.0, "smash")
 		hud.popup("SMASH!  +%d" % pts, PINK, 40)
 		return
+	style.broken()
 	if pw["shield"] > 0.0:
 		world.smash(obj, fx)
 		grace = 0.3
@@ -1440,9 +1574,10 @@ func _on_hit(obj: Node3D, kind: String) -> void:
 		cam.add_trauma(0.45)
 		cam.kick_roll(0.2)
 		hud.flash(Color(1.0, 0.2, 0.3), 0.25)
-		hud.popup("STUMBLE!  CAREFUL", Color(1.0, 0.45, 0.45), 42)
+		hud.popup("STUMBLE!  THE ENFORCER IS ON YOU", Color(1.0, 0.45, 0.45), 38)
 		audio.play("stumble")
 		flow *= 0.5
+		enemies.stumble()
 		return
 	# bounce back off the obstacle so the fall never clips into it
 	var box: AABB = obj.get_meta("box")
@@ -1450,7 +1585,7 @@ func _on_hit(obj: Node3D, kind: String) -> void:
 	if front > -1.6:
 		world.scroll(-(front + 1.6))
 		fx.tick(0.0, -(front + 1.6))
-	_crash("WIPED OUT")
+	_crash("CAUGHT BY THE ENFORCER" if enemies.is_chasing() else "WIPED OUT")
 
 
 # ============================================================ abilities
@@ -1463,14 +1598,15 @@ func _use_dash() -> void:
 			_deny(DASH, "")
 			return
 		hud.slot_used(DASH)
-		ab_active[DASH] = DASH_DUR
-		player.dash_t = DASH_DUR
+		var dd: float = prog.frag_value("dash_power")
+		ab_active[DASH] = dd
+		player.dash_t = dd
 		cam.kick(Vector3(0, 0, 1.3))
 		cam.punch_fov(12.0)
 		cam.add_trauma(0.15)
 		fx.ring(p + Vector3(0, 1.0, 0.5), PINK, 3.0, 0.35, 20.0)
 		audio.play("dash")
-		_add_flow(4.0)
+		_add_flow(4.0, "dash")
 		return
 	# air dash
 	if player.wall_side != 0 or player.is_grappling() or not player.air_dash_ready or airdash_cd > 0.0:
@@ -1490,7 +1626,7 @@ func _use_dash() -> void:
 	fx.ring(p + Vector3(0, 1.0, 0.0), Color(1, 0.6, 0.9), 2.5, 0.3, 10.0)
 	fx.burst(p + Vector3(0, 1.0, 0), PINK, 8, 5.0, 0.12, 0.3, 0.0)
 	audio.play("airdash")
-	_add_flow(6.0)
+	_add_flow(6.0, "airdash")
 
 
 ## E: whatever is in reach - grapple anchor, quarter-pipe, or a wall to run on.
@@ -1511,7 +1647,8 @@ func _use_hook() -> void:
 		fx.burst(target.position, GREEN, 12, 6.0, 0.15, 0.4, 0.0)
 		audio.play("grapple")
 		hud.popup("GRAPPLE!", GREEN, 42)
-		_add_flow(12.0)
+		_mission("grapple", 1)
+		_add_flow(12.0, "grapple")
 		return
 	var qs := _qpipe_side()
 	if qs != 0:
@@ -1540,7 +1677,8 @@ func _start_wall(side: int) -> void:
 	cam.punch_fov(6.0)
 	audio.play("wall")
 	hud.popup("WALL RUN!", Color(0.45, 0.7, 1.0), 42)
-	_add_flow(10.0)
+	_mission("wall", 1)
+	_add_flow(10.0, "wall")
 
 
 func _start_trick(side: int) -> void:
@@ -1568,7 +1706,7 @@ func _trick_landed() -> void:
 			world.smash(obj, fx)
 	var pts := (500 if player.boarding else 250) * _score_mult()
 	score += pts
-	_add_flow(20.0)
+	_add_flow(20.0, "qpipe")
 	hud.popup(("360 AIR!  +%d" if player.boarding else "WALL FLIP!  +%d") % pts, Color(1, 0.8, 0.3), 48)
 	fx.ring(player.position + Vector3(0, 0.2, 0), Color(0.4, 0.8, 1.0), 5.0, 0.4, 0.0, true)
 	fx.burst(player.position, Color(1, 0.8, 0.3), 14, 7.0, 0.16, 0.45, 0.0)
@@ -1655,7 +1793,7 @@ func _grapple_target():
 		if obj.get_meta("kind") != "anchor" or obj.get_meta("used"):
 			continue
 		var z: float = obj.position.z
-		if z > -44.0 and z < -3.0 and z > best_z:
+		if z > -prog.frag_value("grapple_range") and z < -3.0 and z > best_z:
 			best = obj
 			best_z = z
 	return best
@@ -1669,7 +1807,7 @@ func _on_grapple_released() -> void:
 	cam.kick(Vector3(0, -0.4, 0.9))
 	fx.ring(player.position + Vector3(0, 1.0, 0), GREEN, 3.0, 0.35)
 	audio.play("djump", 1.2)
-	_add_flow(8.0)
+	_add_flow(8.0, "release")
 
 
 func _slam_impact() -> void:
@@ -1693,12 +1831,13 @@ func _slam_impact() -> void:
 	hud.flash(GOLD, 0.3)
 	audio.play("shock")
 	if n > 0:
+		_mission("smash", n)
 		var pts := n * 40 * _score_mult()
 		score += pts
-		_add_flow(10.0 * n)
+		_add_flow(10.0 * n, "slam")
 		hud.popup("SLAM x%d  +%d" % [n, pts], GOLD, 44)
 	else:
-		_add_flow(4.0)
+		_add_flow(4.0, "slam")
 
 
 # ============================================================ vehicles
@@ -1765,7 +1904,7 @@ func _skate_trick() -> void:
 	skate_combo_t = 2.5
 	var pts: int = 40 * skate_combo * _score_mult()
 	score += pts
-	_add_flow(6.0 + skate_combo)
+	_add_flow(6.0 + skate_combo, "trick")
 	audio.play("trick", randf_range(0.95, 1.1), -2.0)
 	var txt: String = player.board_trick
 	if skate_combo > 1:
@@ -1782,7 +1921,7 @@ func _kicker() -> void:
 	audio.play("djump", 0.9)
 	var pts := (150 if big else 60) * _score_mult()
 	score += pts
-	_add_flow(14.0 if big else 8.0)
+	_add_flow(14.0 if big else 8.0, "kicker")
 	hud.popup(("KICKFLIP!  +%d" if player.boarding else ("BIG AIR!  +%d" if big else "AIR!  +%d")) % pts, Color(1, 0.8, 0.3), 42)
 	fx.burst(player.position, Color(1, 0.8, 0.3), 12, 6.0, 0.15, 0.4, 0.0)
 
@@ -1791,6 +1930,7 @@ func _update_grind(delta: float) -> void:
 	var grinding_now: bool = on_rail and player.grounded
 	if grinding_now and not player.grinding and grind_t == 0.0:
 		hud.popup("GRIND!" if player.boarding else "RAIL RUN!", CYAN, 40)
+		_style_move("grind")
 		cam.kick(Vector3(0, -0.2, 0))
 	player.grinding = grinding_now and player.boarding
 	if not grinding_now:
@@ -1840,6 +1980,7 @@ func _revive() -> void:
 			world.smash(obj, fx)
 	Engine.time_scale = 1.0
 	player.revive()
+	style.reset()
 	revive_bridge_t = 2.5
 	grace = 2.5
 	state = State.PLAYING
@@ -1852,9 +1993,27 @@ func _revive() -> void:
 
 
 # ============================================================ flow meter
-func _add_flow(v: float) -> void:
+func _add_flow(v: float, kind := "") -> void:
 	flow = minf(100.0, flow + v)
 	flow_idle = 0.0
+	if kind != "":
+		_style_move(kind)
+
+
+## STYLE chain: every move adds style points; variety climbs the multiplier.
+func _style_move(kind: String) -> void:
+	if state != State.PLAYING:
+		return
+	var up: int = style.move(kind)
+	if up > 0:
+		var nm: String = StyleScript.NAMES[up]
+		var col: Color = [Color.WHITE, CYAN, Color(0.6, 1.0, 0.5), Color(1.0, 0.55, 0.2), Color(1.0, 0.3, 0.8)][up]
+		hud.popup("%s!   STYLE x%d" % [nm, style.mult()], col, 44 + up * 4)
+		audio.play("ready", 1.2 + up * 0.1)
+		cam.punch_fov(4.0 + up)
+		if up >= 3:
+			hud.flash(col, 0.2)
+		_mission("style", style.mult(), true)
 
 
 func _tick_flow(delta: float) -> void:
@@ -1866,10 +2025,6 @@ func _tick_flow(delta: float) -> void:
 		tier = 2
 	elif flow >= 35.0:
 		tier = 1
-	if tier > flow_tier:
-		hud.popup("FLOW  x%d  BONUS!" % (tier + 1), Color(1.0, 0.55, 0.95), 46)
-		audio.play("ready", 1.4)
-		cam.punch_fov(6.0)
 	flow_tier = tier
 
 
@@ -1887,13 +2042,23 @@ func _speed_mult() -> float:
 		m *= 1.8
 	if player.vehicle != "":
 		m *= VEH_SPEED[player.vehicle]
+	if events:
+		m *= events.speed_mult()
+	if route == "high":
+		m *= 1.2
+	elif route == "under":
+		m *= 0.88
+	if head_start > 0.0:
+		m *= 2.2
 	return m
 
 
 func _score_mult() -> int:
-	var m := 1 + mini(5, int(distance / 600.0)) + flow_tier
+	var m: int = (1 + mini(5, int(distance / 600.0))) * (style.mult() if style else 1)
 	if pw["double"] > 0.0:
 		m *= 2
+	if events:
+		m *= events.reward_mult()
 	return m
 
 
@@ -1958,7 +2123,13 @@ func _next_zone() -> int:
 	return (zone_idx + 1) % ZONES.size()
 
 
+var _was_dark := 0.0
+
+
 func _update_zone(delta: float) -> void:
+	if events and (events.dark > 0.0 or _was_dark > 0.0) and zone_t >= 1.0:
+		_apply_zone(zone_cur)
+	_was_dark = events.dark if events else 0.0
 	if state == State.PLAYING:
 		# the world spawns scenery ~215 m ahead, so switch its theme early
 		world.theme = _next_zone() if distance + ZONE_LOOKAHEAD >= zone_start + ZONE_LEN else zone_idx
@@ -2001,7 +2172,7 @@ func _warp(target: int) -> void:
 	cam.add_trauma(0.35)
 	audio.play("portal", 0.6)
 	audio.play("dash", 0.5)
-	_add_flow(25.0)
+	_add_flow(25.0, "boost")
 
 
 func _tick_warp(delta: float) -> void:
@@ -2013,6 +2184,14 @@ func _tick_warp(delta: float) -> void:
 		hud.flash(Color.WHITE, 1.2)
 		world.theme = warp_target
 		world.reset(true, 140.0)  # clear run-in after a warp
+		if warp_shortcut:
+			warp_shortcut = false
+			var skip := 400.0
+			distance += skip
+			score += skip * 0.5 * _score_mult()
+			hud.zone_banner("SHORTCUT", "+%d m" % int(skip))
+			warp_t = minf(warp_t, 0.6)
+			return
 		zone_start = distance
 		veh_granted_zone = -1
 		_snap_zone(warp_target)
@@ -2038,6 +2217,21 @@ func _apply_zone(z: Dictionary) -> void:
 	env.glow_intensity = 0.65 + float(z["stars"]) * 0.4 + float(z["plight"]) * 0.25
 	if player_light:
 		player_light.light_energy = z["plight"]
+	# BLACKOUT event: the city goes dark, only warning lights + your torch
+	var dk: float = events.dark if events else 0.0
+	if dk > 0.0:
+		var night := Color(0.01, 0.01, 0.03)
+		sky_mat.sky_top_color = (z["top"] as Color).lerp(night, dk)
+		sky_mat.sky_horizon_color = (z["hor"] as Color).lerp(Color(0.05, 0.03, 0.1), dk)
+		sky_mat.ground_horizon_color = sky_mat.sky_horizon_color
+		env.fog_light_color = (z["fog"] as Color).lerp(Color(0.02, 0.02, 0.05), dk)
+		env.ambient_light_energy = lerpf(z["amb"], 0.08, dk)
+		sun.light_energy = lerpf(z["sun_e"], 0.03, dk)
+		stars_mat.albedo_color.a = maxf(z["stars"], dk)
+		env.glow_intensity += dk * 0.5
+		if player_light:
+			player_light.light_energy = maxf(z["plight"], 2.6 * dk)
+			player_light.omni_range = lerpf(9.0, 16.0, dk)
 
 
 func _spin_pickups(delta: float) -> void:
@@ -2083,7 +2277,7 @@ func _on_jumped(kind: String) -> void:
 			audio.play("djump")
 			fx.burst(player.position + Vector3(0, 0.2, 0), CYAN, 8, 5.0, 0.14, 0.35, 0.0)
 			cam.kick(Vector3(0, 0.25, 0))
-			_add_flow(2.0)
+			_add_flow(2.0, "double")
 		"sky":
 			ab_cd[SKY] = prog.value("sky")
 			hud.slot_used(SKY)
@@ -2094,7 +2288,7 @@ func _on_jumped(kind: String) -> void:
 			cam.kick(Vector3(0, 0.5, 0.5))
 			cam.punch_fov(10.0)
 			hud.popup("SKY JUMP!", Color(0.45, 0.75, 1.0), 40)
-			_add_flow(8.0)
+			_add_flow(8.0, "sky")
 		"dash_jump":
 			dashjump_carry = true
 			audio.play("djump", 0.8)
@@ -2102,14 +2296,15 @@ func _on_jumped(kind: String) -> void:
 			cam.kick(Vector3(0, 0.4, 0.8))
 			hud.popup("DASH JUMP!", PINK, 38)
 			fx.burst(player.position, PINK, 12, 6.0, 0.15, 0.35, 0.0)
-			_add_flow(10.0)
+			_add_flow(10.0, "jump")
 		"wall_jump":
 			audio.play("djump", 1.1)
 			cam.kick(Vector3(player.x_vel * 0.03, 0.3, 0))
 			cam.kick_roll(0.25 * signf(player.x_vel))
-			_add_flow(8.0)
+			_add_flow(8.0, "walljump")
 		_:
 			audio.play("jump", randf_range(0.95, 1.05), -2.0)
+			_style_move("jump")
 	if player.boarding and kind != "wall_jump":
 		_skate_trick()
 
@@ -2121,9 +2316,371 @@ func _on_landed(impact: float, was_slam: bool) -> void:
 		_slam_impact()
 		return
 	audio.play("land", 1.0, -6.0 + clampf(impact * 0.2, 0.0, 6.0))
+	if state == State.PLAYING and not style.chain.is_empty() and impact > 8.0:
+		_style_move("land")
 	cam.kick(Vector3(0, -clampf(impact * 0.018, 0.05, 0.6), 0))
 	if impact > 25.0:
 		cam.add_trauma(0.3)
 		fx.burst(player.position, PINK, 10, 6.0, 0.16, 0.35, 10.0)
 	elif impact > 12.0:
 		cam.add_trauma(0.08)
+
+
+# ============================================================ v9: routes, pickups, enemies, missions
+func _update_route() -> void:
+	var r := ""
+	var py: float = player.position.y
+	for obj in world.objects.get_children():
+		var k: String = obj.get_meta("kind")
+		if k == "platform" and obj.get_meta("route", "") == "high":
+			var box: AABB = obj.get_meta("box")
+			if absf(player.position.x - obj.position.x) < 1.6 and obj.position.z + box.position.z < 0.0 \
+					and obj.position.z + box.end.z > 0.0 and py > 4.0:
+				r = "high"
+		elif k == "underpass":
+			var hl: float = obj.get_meta("half")
+			if player.lane == 1 and absf(obj.position.z) < hl and py < 3.0:
+				r = "under"
+	if r == route:
+		return
+	if r == "high":
+		hud.popup("HIGH ROUTE!   RISKY  ·  x2 COINS  ·  FASTER", GOLD, 42)
+		audio.play("portal", 1.3, -4.0)
+		_mission("high", 1)
+		_style_move("route")
+	elif r == "under":
+		hud.popup("UNDERPASS  ·  SAFE & STEADY", CYAN, 40)
+		audio.play("wall", 0.7, -6.0)
+		_mission("under", 1)
+	route = r
+
+
+func _gain_pickup(obj: Node3D) -> void:
+	var t: String = obj.get_meta("ctype")
+	var c: Color = world.PICKUP_COL[t]
+	fx.burst(obj.position, c, 18, 8.0, 0.2, 0.5, 0.0)
+	fx.ring(obj.position, c, 3.0, 0.4)
+	obj.queue_free()
+	match t:
+		"energy":
+			for i in 3:
+				ab_cd[i] = 0.0
+			airdash_cd = 0.0
+			wall_cd = 0.0
+			slam_cd = 0.0
+			var es: float = prog.frag_value("energy_boost")
+			if es > 0.0:
+				pw["shield"] = maxf(pw["shield"], es)
+				_update_power_visuals()
+			hud.popup("ENERGY!  ABILITIES RECHARGED", c, 38)
+			audio.play("orb", 1.4)
+			_add_flow(10.0, "boost")
+		"fragment":
+			run_frags += 1
+			prog.fragments += 1
+			hud.popup("+1 FRAGMENT", c, 34)
+			audio.play("orb", 1.7, -2.0)
+			_mission("frag", 1)
+		"key":
+			run_keys += 1
+			hud.popup("KEY!  RUN THROUGH A SHORTCUT GATE", c, 36)
+			audio.play("ready", 1.3)
+		"artifact":
+			var left := ProgressScript.ARTIFACTS.filter(func(a): return not a[0] in prog.artifacts)
+			if left.is_empty():
+				prog.fragments += 25
+				run_frags += 25
+				hud.popup("ARTIFACT DUPLICATE  →  +25 FRAGMENTS", c, 36)
+			else:
+				var a: Array = left[randi() % left.size()]
+				prog.artifacts.append(a[0])
+				run_artifacts.append(a[1])
+				hud.zone_banner(a[1], "ARTIFACT FOUND  ·  %d / %d IN YOUR COLLECTION" % [prog.artifacts.size(), ProgressScript.ARTIFACTS.size()])
+				hud.flash(GOLD, 0.4)
+			audio.play("overdrive", 1.2)
+			prog.save()
+
+
+var warp_shortcut := false
+
+
+func _shortcut() -> void:
+	if run_keys <= 0:
+		hud.popup("SHORTCUT LOCKED  ·  NEEDS A KEY", Color(1.0, 0.8, 0.3), 34)
+		audio.play("deny")
+		return
+	run_keys -= 1
+	_mission("shortcut", 1)
+	warp_shortcut = true
+	_warp(zone_idx)
+	hud.popup("SHORTCUT!", GOLD, 56)
+
+
+## A threat from enemies.gd reached you.
+func enemy_hit(title: String) -> void:
+	if state != State.PLAYING or grace > 0.0 or player.is_tricking():
+		return
+	style.broken()
+	if pw["shield"] > 0.0:
+		grace = 0.6
+		cam.add_trauma(0.4)
+		hud.flash(CYAN, 0.25)
+		hud.popup("SHIELD!", CYAN, 40)
+		audio.play("shield_break")
+		return
+	if player.vehicle != "":
+		grace = 1.2
+		cam.add_trauma(0.5)
+		veh_hits -= 1
+		if veh_hits <= 0:
+			fx.burst(player.position + Vector3(0, 0.6, 0), Color(1, 0.6, 0.3), 18, 9.0, 0.2, 0.7)
+			player.set_vehicle("")
+			hud.popup("RIDE WRECKED  -  YOU'RE OK!", Color(1, 0.6, 0.35), 40)
+		else:
+			hud.popup("ARMOR HIT  ·  %d LEFT" % veh_hits, Color(1, 0.7, 0.4), 38)
+		audio.play("shield_break", 0.8)
+		return
+	_crash(title)
+
+
+func enemy_dodged(who: String) -> void:
+	var pts := 100 * _score_mult()
+	score += pts
+	hud.popup("DODGED THE %s!  +%d" % [who, pts], Color(1.0, 0.6, 0.4), 36)
+	_style_move("dodge")
+	_mission("dodge", 1)
+
+
+func enemy_smashed(pos: Vector3, who: String) -> void:
+	fx.burst(pos + Vector3(0, 1, 0), Color(1.0, 0.5, 0.2), 22, 12.0, 0.3, 0.7)
+	cam.add_trauma(0.35)
+	audio.play("smash", 0.8)
+	var pts := 200 * _score_mult()
+	score += pts
+	hud.popup("%s SMASHED!  +%d" % [who, pts], PINK, 42)
+	_style_move("smash")
+	_mission("smash", 1)
+
+
+func rival_knocked(stolen: int) -> void:
+	var c := stolen * 2 + 10
+	gold += c
+	audio.play("smash", 1.2)
+	cam.add_trauma(0.25)
+	hud.popup("RIVAL DOWN!  +%d COINS" % c, Color(0.75, 0.4, 1.0), 44)
+	_style_move("smash")
+
+
+func titan_escaped() -> void:
+	if state != State.PLAYING:
+		return
+	var pts := 1000 * _score_mult()
+	score += pts
+	gold += 50
+	hud.popup("ESCAPED THE TITAN!  +%d  ·  +50 COINS" % pts, Color(1.0, 0.5, 0.2), 44)
+	audio.play("overdrive")
+	_mission("boss", 1)
+
+
+func event_survived(nm: String, _id: String) -> void:
+	if state != State.PLAYING:
+		return
+	var pts := 500 * _score_mult()
+	score += pts
+	gold += 25
+	hud.popup("%s SURVIVED!  +%d  ·  +25 COINS" % [nm, pts], GREEN, 40)
+	audio.play("ready", 1.1)
+	_mission("event", 1)
+
+
+## Enemies also turn up outside the random events.
+func _tick_enemy_spawns(delta: float) -> void:
+	enemy_t -= delta
+	if enemy_t > 0.0 or events.current != "" or enemies.any_active() or distance < 250.0:
+		return
+	enemy_t = randf_range(22.0, 38.0)
+	match randi() % 4:
+		0:
+			enemies.add_rival()
+			hud.popup("A RIVAL RUNNER IS STEALING YOUR COINS!  DASH INTO HER", Color(0.75, 0.4, 1.0), 32)
+		1:
+			enemies.add_blocker()
+			hud.popup("BLOCKER AHEAD!", Color(1.0, 0.5, 0.2), 38)
+		2:
+			enemies.add_bomber()
+			enemies.solo_t = 12.0
+			hud.popup("BOMBER DRONE!", Color(1.0, 0.3, 0.25), 38)
+		3:
+			enemies.add_hunter()
+			enemies.solo_t = 12.0
+			hud.popup("HUNTER DRONE!", Color(1.0, 0.3, 0.25), 38)
+
+
+func _mission(stat: String, v: int, per_run := false) -> void:
+	var done: Array = prog.mission_event(stat, v, per_run)
+	for d in done:
+		run_missions.append(d)
+		var reward := "+%d COINS" % d["coins"]
+		if int(d["frags"]) > 0:
+			reward += "  ·  +%d FRAGMENTS" % d["frags"]
+		hud.popup("MISSION COMPLETE!   " + reward, GREEN, 36)
+		hud.popup(String(d["text"]).to_upper(), Color(0.85, 1.0, 0.85), 26)
+		audio.play("overdrive", 1.3, -4.0)
+
+
+# ============================================================ v9: settings, graphics, cosmetics
+## Which renderer is running: forward_plus, mobile or gl_compatibility.
+func _renderer() -> String:
+	if RenderingServer.get_rendering_device() == null:
+		return "gl_compatibility"
+	var args := OS.get_cmdline_args()
+	var i := args.find("--rendering-method")
+	if i >= 0 and i + 1 < args.size():
+		return args[i + 1]
+	var key := "rendering/renderer/rendering_method.mobile" if OS.has_feature("mobile") else "rendering/renderer/rendering_method"
+	return str(ProjectSettings.get_setting(key, "forward_plus"))
+
+
+func _apply_settings() -> void:
+	var st: Dictionary = prog.settings
+	audio.set_volumes(float(st["music"]), float(st["sfx"]))
+	cam.shake_mult = float(st["shake"])
+	touch.set_enabled(bool(st["touch"]))
+	hud.set_touch_keys(bool(st["touch"]))
+	_apply_graphics()
+
+
+## Ambient occlusion (SSAO) + real-time global illumination (SSIL: screen-space
+## indirect light, bounce light from everything on screen). Both render at
+## half resolution, and the auto-performance governor switches them off if
+## the frame rate drops, so they never cost you smoothness.
+func _apply_graphics() -> void:
+	var q: String = prog.settings["quality"]
+	var forward_plus := _renderer() == "forward_plus"
+	var ao: bool = bool(prog.settings["ao"]) and q in ["ultra", "high", "medium"] and forward_plus and perf_level < 2
+	var gi: bool = bool(prog.settings["gi"]) and q in ["ultra", "high"] and forward_plus and perf_level < 1 and not is_mobile
+	env.ssao_enabled = ao
+	env.ssao_radius = 1.1
+	env.ssao_intensity = 1.6
+	env.ssao_power = 1.5
+	env.ssao_detail = 0.6
+	env.ssao_light_affect = 0.15
+	env.ssil_enabled = gi
+	env.ssil_radius = 6.0
+	env.ssil_intensity = 1.4
+	env.ssil_sharpness = 0.98
+	env.ssil_normal_rejection = 1.0
+	var aoq := RenderingServer.ENV_SSAO_QUALITY_HIGH if q == "ultra" else RenderingServer.ENV_SSAO_QUALITY_MEDIUM
+	RenderingServer.environment_set_ssao_quality(aoq, q != "ultra", 0.5, 2, 50.0, 300.0)
+	var ilq := RenderingServer.ENV_SSIL_QUALITY_MEDIUM if q == "ultra" else RenderingServer.ENV_SSIL_QUALITY_LOW
+	RenderingServer.environment_set_ssil_quality(ilq, true, 0.5, 2, 50.0, 300.0)
+	# cheap baked-style contact shading for renderers / presets without SSAO
+	RenderingServer.global_shader_parameter_set("fake_ao", 0.0 if ao else 1.0)
+	var shadow_d: float = {"ultra": 90.0, "high": 60.0, "medium": 48.0, "low": 34.0, "mobile": 36.0}.get(q, 60.0)
+	if perf_level >= 3:
+		shadow_d = minf(shadow_d, 34.0)
+	sun.directional_shadow_max_distance = shadow_d
+	sun.shadow_enabled = q != "low"
+	var vp := get_viewport()
+	if q == "ultra" and perf_level < 3:
+		vp.msaa_3d = Viewport.MSAA_4X
+	elif q == "high" and perf_level < 3:
+		vp.msaa_3d = Viewport.MSAA_2X
+	else:
+		vp.msaa_3d = Viewport.MSAA_DISABLED
+	if q == "mobile" or q == "low":
+		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR if forward_plus else Viewport.SCALING_3D_MODE_BILINEAR
+		vp.scaling_3d_scale = 0.8 if q == "mobile" else 0.85
+		vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
+	else:
+		vp.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+		vp.scaling_3d_scale = 1.0
+		vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+	hud.show_fps(bool(prog.settings["fps_counter"]))
+
+
+## Watches the frame rate while playing: if it stays under 50 fps, AO / GI /
+## MSAA are stepped down one at a time so the game keeps running smoothly.
+func _perf_governor(delta: float) -> void:
+	if not bool(prog.settings["auto_perf"]) or state != State.PLAYING or DisplayServer.get_name() == "headless":
+		perf_t = 0.0
+		perf_frames = 0
+		return
+	perf_t += delta
+	perf_frames += 1
+	if perf_t >= 3.0:
+		var fps := perf_frames / perf_t
+		perf_t = 0.0
+		perf_frames = 0
+		if fps < 50.0 and perf_level < 3:
+			perf_level += 1
+			_apply_graphics()
+			print("auto-performance: %.0f fps -> level %d" % [fps, perf_level])
+
+
+func _apply_cosmetics() -> void:
+	var tr: Array = ProgressScript.cosmetic(ProgressScript.TRAILS, prog.trail)
+	var au: Array = ProgressScript.cosmetic(ProgressScript.AURAS, prog.aura)
+	player.set_cosmetics(tr[3], tr[4], prog.trail == "rainbow", au[0], au[3], au[4])
+
+
+func _change_setting(key: String, value) -> void:
+	if key == "reset_perf":
+		perf_level = 0
+	else:
+		prog.settings[key] = value
+	prog.save()
+	_apply_settings()
+	audio.play("click", 1.1, -4.0)
+	if panel == "settings" and not key in ["music", "sfx", "shake"]:
+		hud.show_panel("settings", _settings_data())
+
+
+func _pick_cosmetic(kind: String, id: String) -> void:
+	if prog.buy_cosmetic(kind, id):
+		audio.play("ready", 1.2)
+		_apply_cosmetics()
+	else:
+		audio.play("deny")
+	hud.show_panel("customize", _custom_data())
+	hud.set_wallet(prog.wallet)
+
+
+func _buy_frag_upgrade(id: String) -> void:
+	if prog.buy_frag_upgrade(id):
+		audio.play("orb", 1.4)
+		hud.flash(Color(0.75, 0.35, 1.0), 0.2)
+	else:
+		audio.play("deny")
+	hud.show_panel("upgrades", _upgrade_data())
+	hud.set_upgrade_summary(_upgrade_data())
+
+
+func _custom_data() -> Dictionary:
+	var trails := []
+	for t in ProgressScript.TRAILS:
+		trails.append({"id": t[0], "name": t[1], "price": t[2], "a": t[3], "b": t[4], "owned": t[0] in prog.trails_owned, "on": prog.trail == t[0]})
+	var auras := []
+	for a in ProgressScript.AURAS:
+		auras.append({"id": a[0], "name": a[1], "price": a[2], "a": a[3], "b": a[4], "owned": a[0] in prog.auras_owned, "on": prog.aura == a[0]})
+	return {"trails": trails, "auras": auras, "wallet": prog.wallet}
+
+
+func _records_data() -> Dictionary:
+	var ms := []
+	for m in prog.missions:
+		ms.append(prog.mission_info(m))
+	var arts := []
+	for a in ProgressScript.ARTIFACTS:
+		arts.append({"name": a[1], "color": a[2], "found": a[0] in prog.artifacts})
+	return {"scores": prog.scores, "missions": ms, "artifacts": arts, "stats": prog.stats, "wallet": prog.wallet,
+		"fragments": prog.fragments}
+
+
+func _settings_data() -> Dictionary:
+	var d: Dictionary = prog.settings.duplicate()
+	d["wallet"] = prog.wallet
+	d["forward_plus"] = _renderer() == "forward_plus"
+	d["perf_level"] = perf_level
+	d["mobile"] = is_mobile
+	return d

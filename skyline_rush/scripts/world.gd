@@ -113,6 +113,8 @@ func reset(with_rows: bool, first_row := 45.0) -> void:
 	rows_spawned = 0
 	platform_rows = 0
 	wall_rows = 0
+	fork_rows = 0
+	rows_since_fork = 0
 	row_cursor = -first_row
 	tile_cursor = 24.0
 	pipe_cursor = 24.0
@@ -244,8 +246,18 @@ func _spawn_row_inner(z: float, gap: float) -> float:
 	rows_spawned += 1
 	platform_rows = maxi(0, platform_rows - 1)
 	wall_rows = maxi(0, wall_rows - 1)
+	fork_rows = maxi(0, fork_rows - 1)
+	rows_since_fork += 1
 	var from_lane := safe_lane
 	var extra := 0.0
+
+	# ---- v9: branching route fork (high / street / underpass)
+	if rows_spawned > 9 and fork_rows == 0 and platform_rows == 0 and wall_rows == 0 and rows_since_fork > 14 \
+			and (force_fork or randf() < 0.3):
+		force_fork = false
+		safe_lane = 0
+		_guide(from_lane, 0, z, "")
+		return _spawn_fork(z)
 
 	# ---- set pieces
 	if rows_spawned % 15 == 0 and platform_rows == 0 and wall_rows == 0:
@@ -270,8 +282,10 @@ func _spawn_row_inner(z: float, gap: float) -> float:
 
 	# pick this row's safe lane: never more than one lane away from the last
 	var new_safe := clampi(from_lane + (randi() % 3 - 1), -1, 1)
+	if fork_rows > 0:
+		new_safe = 0  # the high path and the underpass own the outer lanes
 	var tunnel_lane := 0
-	if rows_spawned > 8 and rows_spawned % 19 == 9 and platform_rows == 0 and wall_rows == 0:
+	if rows_spawned > 8 and rows_spawned % 19 == 9 and platform_rows == 0 and wall_rows == 0 and fork_rows == 0:
 		tunnel_lane = -1 if randf() < 0.5 else 1
 		if new_safe == tunnel_lane:
 			new_safe = 0
@@ -293,7 +307,7 @@ func _spawn_row_inner(z: float, gap: float) -> float:
 		safe_type = "jump"
 	elif r0 < 0.46:
 		safe_type = "slide"
-	elif r0 < 0.55 and rows_spawned > 5 and theme != 0 and theme != 5:
+	elif r0 < 0.55 and rows_spawned > 5 and theme != 0 and theme != 5 and fork_rows == 0:
 		safe_type = "busramp"
 
 	var types: Array[String] = ["", "", ""]
@@ -304,6 +318,8 @@ func _spawn_row_inner(z: float, gap: float) -> float:
 			types[i] = safe_type
 			continue
 		if lane == tunnel_lane and tunnel_lane != 0:
+			continue
+		if fork_rows > 0:
 			continue
 		var t := ""
 		if wall_rows > 0 and lane == wall_side and randf() < 0.75:
@@ -354,13 +370,13 @@ func _spawn_row_inner(z: float, gap: float) -> float:
 					_spawn_pad(lane, z)
 		if types[i] == "jump" and lane != new_safe and randf() < 0.3:
 			_coin_arc(lane, z, 1.6)
-		elif types[i] == "" and lane != new_safe and lane != tunnel_lane and randf() < 0.25:
+		elif types[i] == "" and lane != new_safe and lane != tunnel_lane and fork_rows == 0 and randf() < 0.25:
 			# an extra gold line through an empty lane
 			_coin_line(lane, z + 6.0, z - 6.0)
 	_guide(from_lane, new_safe, z, safe_type)
 
 	# extra gold in the open stretch after this row (endless-runner style)
-	if randf() < 0.3:
+	if randf() < 0.3 and fork_rows == 0:
 		var cl := randi() % 3 - 1
 		if cl == new_safe:
 			cl = clampi(cl + (1 if randf() < 0.5 else -1), -1, 1)
@@ -372,6 +388,22 @@ func _spawn_row_inner(z: float, gap: float) -> float:
 		if board_rows <= 0:
 			board_rows = 9
 			_spawn_vehicle_token(new_safe, z - gap * 0.5, VEH_THEME[theme])
+	# v9 collectibles: energy, fragments, keys, and (rarely) an artifact
+	var pr := randf()
+	var pz := z - gap * 0.3
+	if pr < 0.006:
+		_spawn_pickup(Vector3(new_safe * LANE_WIDTH, 1.2, pz), "artifact")
+	elif pr < 0.026:
+		_spawn_pickup(Vector3(new_safe * LANE_WIDTH, 1.2, pz), "key")
+	elif pr < 0.086:
+		_spawn_pickup(Vector3(new_safe * LANE_WIDTH, 1.2, pz), "energy")
+	elif pr < 0.176:
+		_spawn_pickup(Vector3(new_safe * LANE_WIDTH, 1.2, pz), "fragment")
+	# SHORTCUT gate in an outer lane every so often
+	if rows_spawned > 12 and rows_spawned % 23 == 17 and fork_rows == 0 and platform_rows == 0:
+		var sl := -1 if new_safe >= 0 else 1
+		if sl != tunnel_lane:
+			_spawn_shortcut(z - gap * 0.55, sl)
 	# power-ups: some in the running lane, some up high for the sky jump
 	if randf() < 0.16:
 		_spawn_power(Vector3(new_safe * LANE_WIDTH, 1.2, z - gap * 0.5), POWERS[randi() % POWERS.size()])
@@ -1768,3 +1800,235 @@ func _torus(parent: Node3D, inner: float, outer: float, pos: Vector3, m: Materia
 	var mi := _mi(parent, _meshes[key], pos, m, false)
 	mi.rotation = rot
 	return mi
+
+
+# ============================================================ v9: branching routes
+## ROUTE FORK: the road splits three ways for FORK_LEN metres.
+##   HIGH ROUTE (left lane)  - ramp up to a narrow sky-path: lots of coins,
+##                             fragments, tough obstacles, faster (shorter).
+##   STREET (middle)         - the normal road.
+##   UNDERPASS (right lane)  - a roofed tunnel: few coins, no obstacles, slower.
+const FORK_LEN := 96.0
+const HIGH_Y := 6.0
+var fork_rows := 0
+var rows_since_fork := 0
+var force_fork := false   # tests / events can ask for the next row to be a fork
+
+
+func _spawn_fork(z: float) -> float:
+	fork_rows = 4
+	rows_since_fork = 0
+	var gold := Color(1.0, 0.8, 0.25)
+	var start := z - 18.0
+	# ---- the choice: an overhead gantry with three signs
+	var g := _obj("fork_sign", 0, z + 6.0, 2.0)
+	var steel := mat(Color(0.25, 0.25, 0.3), Color.BLACK, 0.0, 0.35, 0.7)
+	for sd in [-1.0, 1.0]:
+		_box(g, Vector3(0.3, 6.4, 0.3), Vector3(sd * 4.6, 3.2, 0), steel)
+	_box(g, Vector3(9.5, 0.3, 0.3), Vector3(0, 6.2, 0), steel)
+	var signs := [[-1, "HIGH ROUTE", "RISKY · x2 COINS", gold], [0, "STREET", "", Color(0.85, 0.85, 1.0)],
+		[1, "UNDERPASS", "SAFE · SLOW", CYAN]]
+	for s in signs:
+		var x: float = s[0] * LANE_WIDTH
+		var c: Color = s[3]
+		_box(g, Vector3(2.3, 1.3, 0.12), Vector3(x, 5.3, 0.05), mat(Color(0.06, 0.05, 0.1), c, 0.3), false)
+		_box(g, Vector3(2.3, 0.08, 0.14), Vector3(x, 5.95, 0.06), mat(c, c, 3.0, 0.4, 0, 0, 1.0), false)
+		var was := batching
+		batching = false
+		themes.text(g, s[1], Vector3(x, 5.55, 0.13), 0.028, c, 3.0)
+		if s[2] != "":
+			themes.text(g, s[2], Vector3(x, 5.05, 0.13), 0.018, Color(1, 1, 1), 2.0)
+		batching = was
+		# arrows on the road
+		var ar := mat(c, c, 3.0, 0.4, 0, 0, 1.5)
+		for k in 2:
+			var a1 := _box(g, Vector3(0.9, 0.03, 0.2), Vector3(x - 0.3, 0.03, 4.0 - k * 1.2), ar, false)
+			a1.rotation.y = -0.6
+			var a2 := _box(g, Vector3(0.9, 0.03, 0.2), Vector3(x + 0.3, 0.03, 4.0 - k * 1.2), ar, false)
+			a2.rotation.y = 0.6
+	# ---- HIGH ROUTE: ramp + sky path over the left lane
+	var r := _obj("ramp", -1, start + 8.0, 8.0)
+	r.set_meta("box", AABB(Vector3(-1.2, 0.0, -8.0), Vector3(2.4, HIGH_Y, 16.0)))
+	var slope := atan2(HIGH_Y, 16.0)
+	var deck := mat(Color(0.3, 0.26, 0.4), Color.BLACK, 0.0, 0.4, 0.5)
+	var edge := mat(gold, gold, 2.5, 0.4, 0, 0, 1.0)
+	var slab := _box(r, Vector3(2.4, 0.3, 17.1), Vector3(0, HIGH_Y * 0.5 - 0.1, 0), deck)
+	slab.rotation.x = slope
+	for sd in [-1.0, 1.0]:
+		var e := _box(r, Vector3(0.12, 0.25, 17.1), Vector3(sd * 1.2, HIGH_Y * 0.5 + 0.1, 0), edge, false)
+		e.rotation.x = slope
+	for k in 5:
+		var hh := HIGH_Y * (k + 0.5) / 5.5
+		_box(r, Vector3(0.25, hh, 0.25), Vector3(0, hh * 0.5, 7.0 - k * 3.4), steel, false)
+	var hp := _obj("platform", -1, start - FORK_LEN * 0.5, FORK_LEN * 0.5)
+	hp.set_meta("route", "high")
+	hp.set_meta("box", AABB(Vector3(-1.3, HIGH_Y - 0.6, -FORK_LEN * 0.5), Vector3(2.6, 0.6, FORK_LEN)))
+	var segs := int(FORK_LEN / TILE)
+	for i in segs:
+		var zz := FORK_LEN * 0.5 - TILE * 0.5 - i * TILE
+		_box(hp, Vector3(2.6, 0.5, TILE - 0.04), Vector3(0, HIGH_Y - 0.25, zz), deck)
+		_box(hp, Vector3(0.12, 0.3, TILE), Vector3(-1.3, HIGH_Y + 0.1, zz), edge, false)
+		_box(hp, Vector3(0.12, 0.3, TILE), Vector3(1.3, HIGH_Y + 0.1, zz), edge, false)
+		if i % 3 == 1:
+			_box(hp, Vector3(0.35, HIGH_Y - 0.5, 0.35), Vector3(0, (HIGH_Y - 0.5) * 0.5, zz), steel, false)
+	# dense gold + fragments, and tough obstacles up there
+	var cz := start - 3.0
+	while cz > start - FORK_LEN + 3.0:
+		var c := _coin(-1, cz, HIGH_Y + 1.0)
+		c.set_meta("value", 2)
+		cz -= 1.8
+	for k in 3:
+		_spawn_pickup(Vector3(-LANE_WIDTH, HIGH_Y + 1.2, start - 20.0 - k * 28.0), "fragment")
+	if randf() < 0.25:
+		_spawn_pickup(Vector3(-LANE_WIDTH, HIGH_Y + 1.3, start - FORK_LEN + 10.0), "artifact")
+	elif randf() < 0.4:
+		_spawn_pickup(Vector3(-LANE_WIDTH, HIGH_Y + 1.3, start - FORK_LEN + 10.0), "key")
+	var oz := start - 14.0
+	var kinds := ["jump", "slide", "crate", "jump", "slide"]
+	for k in kinds.size():
+		match kinds[k]:
+			"jump": _spawn_amp(-1, oz)
+			"slide": _spawn_laser(-1, oz)
+			"crate": _spawn_crate(-1, oz)
+		objects.get_child(objects.get_child_count() - 1).position.y = HIGH_Y
+		oz -= 16.0
+	# ---- UNDERPASS: roofed tunnel over the right lane
+	var u := _obj("underpass", 1, start - FORK_LEN * 0.5, FORK_LEN * 0.5)
+	u.set_meta("len", FORK_LEN)
+	var conc := mat(Color(0.42, 0.42, 0.46), Color.BLACK, 0.0, 0.85)
+	var dark := mat(Color(0.12, 0.12, 0.15), Color.BLACK, 0.0, 0.9)
+	var lamp := mat(Color(1.0, 0.85, 0.6), Color(1.0, 0.8, 0.5), 3.5)
+	_box(u, Vector3(3.4, 0.4, FORK_LEN), Vector3(0.1, 4.6, 0), conc)
+	_box(u, Vector3(0.4, 4.6, FORK_LEN), Vector3(1.6, 2.3, 0), conc)
+	_box(u, Vector3(2.6, 0.02, FORK_LEN), Vector3(0, 0.02, 0), dark, false)
+	for i in int(FORK_LEN / 6.0):
+		var zz := FORK_LEN * 0.5 - 3.0 - i * 6.0
+		_box(u, Vector3(0.35, 4.4, 0.35), Vector3(-1.25, 2.2, zz), conc)
+		_box(u, Vector3(1.6, 0.06, 0.25), Vector3(0.1, 4.37, zz), lamp, false)
+		_box(u, Vector3(0.05, 0.3, 1.2), Vector3(1.38, 1.0, zz), mat(CYAN, CYAN, 2.0, 0.4, 0, 0, 0.8), false)
+	# entrance portal frame + sign
+	_box(u, Vector3(3.6, 0.7, 0.5), Vector3(0.1, 4.2, FORK_LEN * 0.5), mat(Color(0.2, 0.2, 0.25), CYAN, 0.4))
+	var was2 := batching
+	batching = false
+	themes.text(u, "UNDERPASS", Vector3(0.1, 4.2, FORK_LEN * 0.5 + 0.27), 0.03, CYAN, 3.0)
+	batching = was2
+	var ucz := start - 6.0
+	while ucz > start - FORK_LEN + 6.0:
+		_coin(1, ucz, 1.0)
+		ucz -= 8.0
+	_spawn_pickup(Vector3(LANE_WIDTH, 1.1, start - FORK_LEN * 0.5), "energy")
+	return 10.0
+
+
+# ============================================================ v9: collectibles
+## energy (cyan bolt): refills every ability instantly
+## fragment (purple crystal): currency for permanent ability upgrades
+## key (gold key): opens a SHORTCUT gate
+## artifact (rare relic): goes to your permanent collection
+const PICKUP_COL := {"energy": Color(0.3, 0.95, 1.0), "fragment": Color(0.75, 0.35, 1.0), "key": Color(1.0, 0.8, 0.25),
+	"artifact": Color(1.0, 0.55, 0.2)}
+
+
+func _spawn_pickup(pos: Vector3, ctype: String) -> void:
+	var n := Node3D.new()
+	n.position = pos
+	n.set_meta("kind", "pickup")
+	n.set_meta("ctype", ctype)
+	n.set_meta("half", 1.0)
+	objects.add_child(n)
+	var c: Color = PICKUP_COL[ctype]
+	var icon := Node3D.new()
+	n.add_child(icon)
+	var m := mat(c.lightened(0.3), c, 3.5, 0.2, 0.4, 0.9, 1.0, Color.WHITE)
+	match ctype:
+		"energy":
+			var a := _box(icon, Vector3(0.16, 0.55, 0.12), Vector3(0.08, 0.2, 0), m, false)
+			a.rotation.z = -0.45
+			var b := _box(icon, Vector3(0.16, 0.55, 0.12), Vector3(-0.08, -0.2, 0), m, false)
+			b.rotation.z = -0.45
+			_box(icon, Vector3(0.36, 0.1, 0.12), Vector3(0, 0, 0), m, false)
+		"fragment":
+			var gm := _mi(icon, _mesh("gem"), Vector3.ZERO, m, false)
+			gm.scale = Vector3(0.28, 0.5, 0.28)
+			var g2 := _mi(icon, _mesh("gem"), Vector3(0.22, -0.12, 0.05), m, false)
+			g2.scale = Vector3(0.14, 0.26, 0.14)
+			g2.rotation.z = 0.5
+		"key":
+			_torus(icon, 0.12, 0.2, Vector3(0, 0.3, 0), m)
+			_box(icon, Vector3(0.07, 0.55, 0.07), Vector3(0, -0.05, 0), m, false)
+			_box(icon, Vector3(0.16, 0.06, 0.07), Vector3(0.08, -0.25, 0), m, false)
+			_box(icon, Vector3(0.12, 0.06, 0.07), Vector3(0.06, -0.12, 0), m, false)
+		"artifact":
+			var gm2 := _mi(icon, _mesh("gem"), Vector3(0, 0.15, 0), m, false)
+			gm2.scale = Vector3(0.35, 0.35, 0.35)
+			_torus(icon, 0.28, 0.34, Vector3(0, -0.15, 0), mat(Color(1, 0.9, 0.5), Color(1, 0.7, 0.2), 2.0), Vector3(PI / 2, 0, 0))
+			_beam(n, Vector3(0, -pos.y, 0), 0.6, 30.0, c, 0.45)
+	spinners.append([icon, Vector3(0, 1, 0), 2.5])
+	var ring := _torus(n, 0.62, 0.7, Vector3.ZERO, mat(Color.WHITE, c, 3.0, 0.3, 0, 0, 1.0), Vector3(PI / 2, 0, 0))
+	spinners.append([ring, Vector3(0.3, 1, 0).normalized(), 3.0])
+	bobbers.append([n, pos.y, 0.15, 3.0, randf() * TAU])
+
+
+## SHORTCUT gate in an outer lane: run through it holding a KEY to skip ahead.
+func _spawn_shortcut(z: float, lane: int) -> void:
+	var n := _obj("shortcut", lane, z, 2.0)
+	n.set_meta("hit", false)
+	var gold := Color(1.0, 0.8, 0.25)
+	var frame := mat(Color(0.35, 0.28, 0.12), gold, 0.5, 0.3, 0.8)
+	for sd in [-1.0, 1.0]:
+		_box(n, Vector3(0.3, 3.2, 0.4), Vector3(sd * 1.15, 1.6, 0), frame)
+	_box(n, Vector3(2.6, 0.4, 0.45), Vector3(0, 3.3, 0), frame)
+	var q := MeshInstance3D.new()
+	var qm := QuadMesh.new()
+	qm.size = Vector2(2.0, 2.9)
+	q.mesh = qm
+	var pm := ShaderMaterial.new()
+	pm.shader = PORTAL_SHADER
+	pm.set_shader_parameter("color", gold)
+	pm.set_shader_parameter("strength", 0.6)
+	q.material_override = pm
+	q.position = Vector3(0, 1.5, 0)
+	q.extra_cull_margin = 60.0
+	q.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	n.add_child(q)
+	var was := batching
+	batching = false
+	themes.text(n, "SHORTCUT", Vector3(0, 3.3, 0.24), 0.022, gold, 3.0)
+	batching = was
+	_torus(n, 0.18, 0.26, Vector3(0, 2.3, 0.3), mat(gold, gold, 3.0))
+	_box(n, Vector3(0.08, 0.4, 0.05), Vector3(0, 2.0, 0.3), mat(gold, gold, 3.0), false)
+
+
+## Random-event helpers (called by events.gd / enemies.gd).
+func spawn_oncoming_bus(lane: int, z: float) -> void:
+	var was := batching
+	batching = true
+	_spawn_bus(lane, z, true, false)
+	batching = was
+	flush_batches()
+	var b := objects.get_child(objects.get_child_count() - 1)
+	b.set_meta("move", randf_range(10.0, 13.0))
+
+
+func drop_block(lane: int, z: float) -> Node3D:
+	var was := batching
+	batching = true
+	_spawn_trap(lane, z, "drop")
+	batching = was
+	flush_batches()
+	for i in range(objects.get_child_count() - 1, -1, -1):
+		var o := objects.get_child(i)
+		if o.get_meta("kind") == "drop":
+			o.set_meta("trig", true)
+			o.position.y = 12.0
+			return o
+	return null
+
+
+func blocker_wall(lane: int, z: float) -> Node3D:
+	var was := batching
+	batching = true
+	_spawn_crate(lane, z)
+	batching = was
+	flush_batches()
+	return objects.get_child(objects.get_child_count() - 1)

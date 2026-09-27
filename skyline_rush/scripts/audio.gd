@@ -24,6 +24,9 @@ var _fade_t := 1.0
 var _t := 0.0
 var _lowpass: AudioEffectLowPassFilter
 var _cache := {}
+var music_vol := 0.8   # settings (0..1)
+var sfx_vol := 0.9
+var rate := 1.0
 
 
 func _ready() -> void:
@@ -86,10 +89,10 @@ func _process(delta: float) -> void:
 		# equal-power crossfade
 		var a := sin(_fade_t * PI * 0.5)
 		var b := cos(_fade_t * PI * 0.5)
-		music.volume_db = linear_to_db(maxf(a, 0.0001)) + MUSIC_DB
+		music.volume_db = linear_to_db(maxf(a * music_vol, 0.0001)) + MUSIC_DB
 		var old: AudioStreamPlayer = music.get_meta("old") if music.has_meta("old") else null
 		if old and old != music:
-			old.volume_db = linear_to_db(maxf(b, 0.0001)) + MUSIC_DB
+			old.volume_db = linear_to_db(maxf(b * music_vol, 0.0001)) + MUSIC_DB
 			if _fade_t >= 1.0:
 				old.stop()
 
@@ -101,7 +104,7 @@ func play(name: String, pitch := 1.0, vol_db := 0.0) -> void:
 	idx = (idx + 1) % players.size()
 	p.stream = sounds[name]
 	p.pitch_scale = pitch
-	p.volume_db = -3.0 + vol_db
+	p.volume_db = -3.0 + vol_db + linear_to_db(maxf(sfx_vol, 0.0001))
 	p.play()
 
 
@@ -122,8 +125,22 @@ func toggle_music() -> void:
 			m.stop()
 
 
+func set_volumes(mv: float, sv: float) -> void:
+	music_vol = mv
+	sfx_vol = sv
+	if _fade_t >= 1.0:
+		music.volume_db = linear_to_db(maxf(music_vol, 0.0001)) + MUSIC_DB
+
+
+## OVERDRIVE plays the music a touch faster.
+func set_rate(r: float) -> void:
+	rate = r
+	for m in [music_a, music_b]:
+		m.pitch_scale = r
+
+
 func set_warp(on: bool) -> void:
-	music.pitch_scale = 0.8 if on else 1.0
+	music.pitch_scale = 0.8 if on else rate
 	AudioServer.set_bus_effect_enabled(0, AudioServer.get_bus_effect_count(0) - 1, on)
 
 

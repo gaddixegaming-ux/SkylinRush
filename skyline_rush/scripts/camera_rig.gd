@@ -32,8 +32,11 @@ func _ready() -> void:
 	position = base_pos
 
 
+var shake_mult := 1.0  # settings: camera shake strength
+
+
 func add_trauma(a: float) -> void:
-	trauma = minf(1.0, trauma + a)
+	trauma = minf(1.0, trauma + a * shake_mult)
 
 
 func punch_fov(a: float) -> void:

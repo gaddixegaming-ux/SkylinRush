@@ -1,6 +1,64 @@
-# SKYLINE RUSH v8: endless runner with 9 tracks, 5 runners, 3 rideable vehicles (Godot 4.3+, PC)
+# SKYLINE RUSH v9: endless runner with 9 tracks, 5 runners, 3 rideable vehicles, PC + mobile (Godot 4.3+, PC)
 
 Open Godot 4.3 or newer → Import → choose `project.godot` → press F5.
+
+## What's new in v9
+### Look and performance
+- **Ambient occlusion (SSAO)** and **real-time global illumination (SSIL)**.
+  - SSIL is screen-space bounce light: coloured walls and floors light what is around them.
+  - Both render at half resolution. A built-in **auto-performance governor** watches the frame rate while you play. If it stays under 50 fps, it steps down GI, then AO, then MSAA, so smoothness never suffers.
+  - Everything can be set in **SETTINGS**: LOW / MEDIUM / HIGH / ULTRA presets, AO and GI toggles, auto-performance, and an FPS counter.
+- **Grounded buildings:** the land beside the road is now flush with the base of every building. Nothing floats any more; the Candy Carnival gets a pink candy lawn.
+
+### Gameplay
+- **STYLE / momentum multiplier:**
+  - Chain moves to climb **x1 → x2 → x3 → x5 → x10** (STYLISH, SLICK, SAVAGE, LEGENDARY). Moves include jump, slide, dash, air dash, wall run, wall jump, grapple, swing, slam, grind, board trick, 360 air, close call, smash and dodge.
+  - Variety pays: repeating the same move is worth much less.
+  - Getting hit resets it; standing around drains it. The HUD meter shows your chain.
+- **Branching routes:** now and then the road forks under a sign gantry.
+  - **HIGH ROUTE** (left-lane ramp): a narrow sky path with x2 coins, fragments and maybe a key or artifact. It is faster, but has tough obstacles.
+  - **STREET** (middle): the normal road.
+  - **UNDERPASS** (right lane): a roofed tunnel with few coins and no obstacles. It is slower, but safe.
+- **Enemies:**
+  - **ENFORCER:** chases you after a stumble. Stumble again while he's close and you're caught.
+  - **BOMBER** drone: drops blocks into the lanes.
+  - **HUNTER** drone: locks a red laser on your lane, then fires. Change lane!
+  - **RIVAL** runner: steals the coins in her lane. Dash into her to win them back.
+  - **BLOCKER** sled-bot: slides in front of you. Dodge it or dash through it.
+  - **TITAN** mini-boss (MECH CHASE): rolls shockwaves down the lanes; jump them.
+- **Random events** about every minute, each paying a bonus if you survive it:
+  - **BUS RUSH:** waves of buses, one lane always free.
+  - **BLACKOUT:** the city goes dark except for warning lights and your torch.
+  - **DRONE HUNT**
+  - **OVERDRIVE:** faster, with score and coins x2.
+  - **GRAVITY SHIFT:** low gravity.
+  - **MECH CHASE**
+- **New collectibles:**
+  - **Energy** (cyan bolt): recharges all abilities.
+  - **Fragments** (purple crystals): buy permanent ability upgrades.
+  - **Keys** (gold): open **SHORTCUT** gates that skip 400 m.
+  - **Artifacts:** 12 rare relics for your permanent collection.
+
+### Menu
+- **UPGRADES:** a COINS tab (power-ups and rides), plus a new **FRAGMENTS** tab with permanent ability upgrades: dash power, grapple range, air control, style memory, energy cells and head start.
+- **STYLE SHOP** (C): running **trails** (Neon, Ice, Fire, Toxic, Gold Rush, Void, Rainbow) and **auras** (Sparkle, Storm, Blaze, Petals, Shadow).
+- **RECORDS** (H):
+  - a **top-10 HIGH SCORE** table (score, distance, runner, track, date)
+  - 3 active **MISSIONS** (challenges) that pay coins and fragments and get harder as you finish them
+  - the **ARTIFACT COLLECTION**
+- **SETTINGS** (O): music and SFX volume, graphics quality, AO, GI, auto-performance, FPS counter, camera shake and touch controls.
+- The game-over screen shows your high-score rank, style peak, fragments, completed missions and artifacts found.
+
+### Mobile version
+- `tools/make_mobile.py` builds the **mobile edition**:
+  - Godot's **Mobile renderer**, with no global illumination and cheap contact shading in place of SSAO
+  - **touch controls**: swipe left/right/up/down, DASH and HOOK buttons, a pause button (swipe up twice = SKY JUMP)
+  - landscape immersive fullscreen
+  - 2048 px model textures
+  - an Android export preset
+- The main project also detects phones automatically: touch on, MOBILE quality preset.
+- `export_presets.cfg` has **Windows Desktop**, **Linux** and **Android** (arm64) presets.
+- The app icon is `icon.png`.
 
 ## What's new in v8
 - **Soundtrack:** 10 original songs, one per track plus the menu. They all use the **same melody**, each in its own modern style and at a faster tempo:

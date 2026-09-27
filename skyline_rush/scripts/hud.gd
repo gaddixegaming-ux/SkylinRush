@@ -15,6 +15,9 @@ signal panel_requested(panel: String)
 signal garage_tab(type: String)
 signal garage_item(index: int)
 signal upgrade_buy(id: String)
+signal frag_buy(id: String)
+signal cosmetic_pick(kind: String, id: String)
+signal setting_changed(key: String, value)
 
 const PINK := Color(1.0, 0.35, 0.75)
 const CYAN := Color(0.35, 0.9, 1.0)
@@ -89,6 +92,17 @@ var _flash_color := Color.WHITE
 var _coin_pop := 0.0
 var _t := 0.0
 var _last_mult := 1
+# v9
+var event_lbl: Label
+var frag_lbl: Label
+var key_chip: PanelContainer
+var route_chip: PanelContainer
+var fps_lbl: Label
+var sub_tab := {"upgrades": "coins", "records": "scores", "customize": "trails"}
+var _panel_data := {}
+var over_extra: VBoxContainer
+const PURPLE := Color(0.75, 0.35, 1.0)
+const STYLE_COLS := [Color(0.6, 0.45, 1.0), Color(0.35, 0.9, 1.0), Color(0.6, 1.0, 0.5), Color(1.0, 0.55, 0.2), Color(1.0, 0.3, 0.8)]
 
 
 # ============================================================ custom widgets
@@ -155,6 +169,25 @@ class Bar extends Control:
 			var fs := int(size.y * 0.6)
 			draw_string_outline(fnt, Vector2(0, size.y * 0.5 + fs * 0.36), text, HORIZONTAL_ALIGNMENT_CENTER, size.x, fs, 5, Color(0.05, 0.02, 0.1))
 			draw_string(fnt, Vector2(0, size.y * 0.5 + fs * 0.36), text, HORIZONTAL_ALIGNMENT_CENTER, size.x, fs, Color.WHITE)
+
+
+class Swatch extends Control:
+	var a := Color.WHITE
+	var b := Color.BLACK
+	func _draw() -> void:
+		var steps := 16
+		for i in steps:
+			var x0 := size.x * i / steps
+			draw_rect(Rect2(Vector2(x0, 0), Vector2(size.x / steps + 0.5, size.y)), a.lerp(b, float(i) / steps))
+
+
+class Gem extends Control:
+	var col := Color.WHITE
+	func _draw() -> void:
+		var c := size * 0.5
+		var r := minf(size.x, size.y) * 0.45
+		draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r), c + Vector2(r * 0.75, -r * 0.2), c + Vector2(0, r), c + Vector2(-r * 0.75, -r * 0.2)]), col)
+		draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r), c + Vector2(r * 0.35, -r * 0.2), c + Vector2(0, r * 0.3), c + Vector2(-r * 0.35, -r * 0.2)]), col.lightened(0.4))
 
 
 class Pips extends Control:
@@ -305,6 +338,10 @@ func _ready() -> void:
 	_build_menu()
 	_build_pause()
 	_build_over()
+	fps_lbl = _label("", 18, Color(0.7, 1.0, 0.7), 5)
+	fps_lbl.position = Vector2(12, 4)
+	fps_lbl.visible = false
+	root.add_child(fps_lbl)
 
 
 func _style(bg: Color, border := Color(0, 0, 0, 0), bw := 0, radius := 16, shadow := true) -> StyleBoxFlat:
@@ -456,6 +493,18 @@ func _build_hud() -> void:
 	coin_lbl.custom_minimum_size = Vector2(130, 0)
 	coin_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	gh.add_child(coin_lbl)
+	var cr := HBoxContainer.new()
+	cr.alignment = BoxContainer.ALIGNMENT_END
+	cr.add_theme_constant_override("separation", 8)
+	cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	right.add_child(cr)
+	route_chip = _chip("HIGH ROUTE", GOLD, 16)
+	cr.add_child(route_chip)
+	key_chip = _chip("KEY x1", GOLD, 16)
+	cr.add_child(key_chip)
+	var fc := _chip("◆ 0", PURPLE, 18)
+	frag_lbl = fc.get_child(0)
+	cr.add_child(fc)
 	power_box = VBoxContainer.new()
 	power_box.add_theme_constant_override("separation", 8)
 	power_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -505,6 +554,9 @@ func _build_hud() -> void:
 	speed_lbl = _label("0 KM/H", 20, Color(0.9, 0.9, 1.0), 6)
 	speed_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	top.add_child(speed_lbl)
+	event_lbl = _label("", 26, Color.WHITE, 8)
+	event_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	top.add_child(event_lbl)
 
 	# vehicle card (bottom-left)
 	veh_card = _card(Color(1.0, 0.6, 0.3))
@@ -562,7 +614,7 @@ func _build_hud() -> void:
 	flow_bar.col_a = Color(0.6, 0.45, 1.0)
 	flow_bar.col_b = PINK
 	flow_bar.fnt = font
-	flow_bar.ticks = [0.35, 0.7]
+	flow_bar.ticks = []
 	bottom.add_child(flow_bar)
 	var bar_panel := PanelContainer.new()
 	var bs := _style(Color(0.05, 0.03, 0.1, 0.62), Color(0.6, 0.5, 1.0, 0.25), 1, 18)
@@ -707,8 +759,9 @@ func _build_menu() -> void:
 	nav.offset_top = 30
 	nav.add_theme_constant_override("separation", 8)
 	menu.add_child(nav)
-	for it in [["GARAGE", "G", Color(1.0, 0.6, 0.3), "garage"], ["UPGRADES", "U", GOLD, "upgrades"], ["CONTROLS", "TAB", CYAN, "controls"], ["QUIT", "", Color(0.6, 0.5, 0.9), "quit"]]:
-		var nb := _button(it[0] + (("   " + it[1]) if it[1] != "" else ""), it[2], 150, 46, 18)
+	for it in [["GARAGE", "G", Color(1.0, 0.6, 0.3), "garage"], ["UPGRADES", "U", GOLD, "upgrades"], ["STYLE", "C", PINK, "customize"],
+			["RECORDS", "H", GREEN, "records"], ["SETTINGS", "O", Color(0.7, 0.75, 1.0), "settings"], ["CONTROLS", "TAB", CYAN, "controls"], ["QUIT", "", Color(0.6, 0.5, 0.9), "quit"]]:
+		var nb := _button(it[0] + (("  " + it[1]) if it[1] != "" else ""), it[2], 140, 46, 16)
 		nb.alignment = HORIZONTAL_ALIGNMENT_CENTER
 		var id: String = it[3]
 		nb.pressed.connect(func():
@@ -830,7 +883,14 @@ func _build_side_panel() -> void:
 	head.add_child(back)
 	side_body = VBoxContainer.new()
 	side_body.add_theme_constant_override("separation", 10)
-	v.add_child(side_body)
+	side_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sc := ScrollContainer.new()
+	sc.name = "Scroll"
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.custom_minimum_size = Vector2(800, 0)
+	v.add_child(sc)
+	sc.add_child(side_body)
+	side_body.resized.connect(func(): sc.custom_minimum_size.y = minf(side_body.size.y, 760.0))
 
 
 func _build_controls() -> void:
@@ -880,7 +940,7 @@ func _build_controls() -> void:
 		pg.add_child(_chip(r[0], r[2]))
 		pg.add_child(_label(r[1], 18, Color.WHITE, 0, font_reg))
 	cv.add_child(_gap(4))
-	cv.add_child(_label("Your garage ride is handed to you when you enter its map, for RIDE TIME seconds (ride tokens refill it):\nskateboard - SKATE PARK  ·  hover - HOVER HARBOR  ·  moto - TURBO HIGHWAY\nESC pause  ·  M music  ·  F11 fullscreen  ·  gamepad supported", 16, TEXT_DIM, 0, font_reg))
+	cv.add_child(_label("Your garage ride is handed to you when you enter its map, for RIDE TIME seconds (ride tokens refill it):\nskateboard - SKATE PARK  ·  hover - HOVER HARBOR  ·  moto - TURBO HIGHWAY\nSTYLE: chain different moves to climb x2 → x3 → x5 → x10 (getting hit resets it)\nROUTES: left lane ramp = HIGH ROUTE (risky, x2 coins)  ·  right lane = UNDERPASS (safe)\nMenu:  G garage  ·  U upgrades  ·  C style shop  ·  H records  ·  O settings\nTOUCH: swipe to move / jump / slide, DASH + HOOK buttons\nESC pause  ·  M music  ·  F11 fullscreen  ·  gamepad supported", 16, TEXT_DIM, 0, font_reg))
 
 
 func _center_panel(border: Color) -> VBoxContainer:
@@ -953,7 +1013,7 @@ func _build_over() -> void:
 	grid.add_theme_constant_override("v_separation", 4)
 	grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(grid)
-	for k in ["SCORE", "DISTANCE", "COINS", "CLOSE CALLS", "BEST"]:
+	for k in ["SCORE", "DISTANCE", "COINS", "STYLE PEAK", "FRAGMENTS", "BEST"]:
 		grid.add_child(_label(k, 24, TEXT_DIM))
 		var val := _label("0", 28, Color.WHITE)
 		val.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -964,6 +1024,10 @@ func _build_over() -> void:
 	over_bank = _label("", 20, GOLD)
 	over_bank.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(over_bank)
+	over_extra = VBoxContainer.new()
+	over_extra.add_theme_constant_override("separation", 4)
+	over_extra.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_child(over_extra)
 	over_revive = _button("REVIVE   R", GOLD, 560)
 	over_revive.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	over_revive.pressed.connect(func(): revive_pressed.emit())
@@ -1037,11 +1101,18 @@ func show_panel(p: String, data: Dictionary) -> void:
 		c.queue_free()
 	if data.has("wallet"):
 		set_wallet(data["wallet"])
+	_panel_data = data
 	match p:
 		"garage":
 			_fill_garage(data)
 		"upgrades":
 			_fill_upgrades(data)
+		"customize":
+			_fill_customize(data)
+		"records":
+			_fill_records(data)
+		"settings":
+			_fill_settings(data)
 
 
 func _fill_garage(d: Dictionary) -> void:
@@ -1110,10 +1181,38 @@ func _fill_garage(d: Dictionary) -> void:
 		grid.add_child(b)
 
 
+func _tabs(panel: String, items: Array) -> void:
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 10)
+	side_body.add_child(tabs)
+	for it in items:
+		var on: bool = sub_tab.get(panel, "") == it[0]
+		var col: Color = it[2]
+		var b := _button(it[1], col if on else Color(0.5, 0.45, 0.7), 240, 48, 18)
+		b.alignment = HORIZONTAL_ALIGNMENT_CENTER
+		if on:
+			b.add_theme_stylebox_override("normal", _style(col, Color.WHITE, 2, 12, false))
+			b.add_theme_color_override("font_color", INK)
+		var id: String = it[0]
+		b.pressed.connect(func():
+			sub_tab[panel] = id
+			show_panel(panel, _panel_data))
+		tabs.add_child(b)
+
+
 func _fill_upgrades(d: Dictionary) -> void:
 	side_title.text = "UPGRADES"
+	_tabs("upgrades", [["coins", "POWER-UPS  ·  COINS", GOLD], ["frags", "ABILITIES  ·  FRAGMENTS", PURPLE]])
+	if sub_tab["upgrades"] == "frags":
+		side_body.add_child(_label("Fragments (purple crystals on the track, on the HIGH ROUTE and from missions) buy permanent ability upgrades.   You have  ◆ %d" % d.get("fragments", 0), 16, TEXT_DIM, 0, font_reg))
+		_upgrade_rows(d.get("frag_rows", []), d.get("fragments", 0), true)
+		return
 	side_body.add_child(_label("Spend the coins you collect on longer power-ups, faster abilities and tougher rides.", 16, TEXT_DIM, 0, font_reg))
-	for r in d["rows"]:
+	_upgrade_rows(d["rows"], d["wallet"], false)
+
+
+func _upgrade_rows(rows: Array, money: int, frags: bool) -> void:
+	for r in rows:
 		var card := _card(r["color"], Color(0.09, 0.06, 0.17, 0.95))
 		side_body.add_child(card)
 		var hb := HBoxContainer.new()
@@ -1134,13 +1233,236 @@ func _fill_upgrades(d: Dictionary) -> void:
 		pips.custom_minimum_size = Vector2(220, 10)
 		v.add_child(pips)
 		var cost: int = r["cost"]
-		var b := _button("MAX" if cost < 0 else ("●  " + _fmt(cost)), GOLD, 150, 52, 20)
+		var b := _button("MAX" if cost < 0 else (("◆  " if frags else "●  ") + _fmt(cost)), PURPLE if frags else GOLD, 150, 52, 20)
 		b.alignment = HORIZONTAL_ALIGNMENT_CENTER
-		b.disabled = cost < 0 or d["wallet"] < cost
+		b.disabled = cost < 0 or money < cost
 		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var id: String = r["id"]
-		b.pressed.connect(func(): upgrade_buy.emit(id))
+		if frags:
+			b.pressed.connect(func(): frag_buy.emit(id))
+		else:
+			b.pressed.connect(func(): upgrade_buy.emit(id))
 		hb.add_child(b)
+
+
+# ------------------------------------------------------------ v9 panels
+func _swatch_button(name: String, a: Color, b: Color, status: Control, on: bool, w := 375.0) -> Button:
+	var bt := Button.new()
+	bt.focus_mode = Control.FOCUS_NONE
+	bt.custom_minimum_size = Vector2(w, 58)
+	var st := _style(Color(0.1, 0.06, 0.18, 0.95), Color(a, 0.5), 2, 12, false)
+	st.border_width_left = 14
+	st.border_color = a
+	if on:
+		st.bg_color = Color(a.r * 0.3, a.g * 0.3, a.b * 0.35, 0.95)
+	var hv := st.duplicate()
+	hv.bg_color = Color(a.r * 0.35, a.g * 0.3, a.b * 0.45, 0.98)
+	bt.add_theme_stylebox_override("normal", st)
+	bt.add_theme_stylebox_override("hover", hv)
+	bt.add_theme_stylebox_override("pressed", hv)
+	bt.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	var hb := HBoxContainer.new()
+	hb.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hb.offset_left = 26
+	hb.offset_right = -14
+	hb.add_theme_constant_override("separation", 10)
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bt.add_child(hb)
+	var sw := Swatch.new()
+	sw.a = a
+	sw.b = b
+	sw.custom_minimum_size = Vector2(56, 22)
+	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hb.add_child(sw)
+	var nm := _label(name, 20, Color.WHITE)
+	nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nm.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hb.add_child(nm)
+	status.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hb.add_child(status)
+	return bt
+
+
+func _fill_customize(d: Dictionary) -> void:
+	side_title.text = "STYLE SHOP"
+	_tabs("customize", [["trails", "TRAILS", PINK], ["auras", "AURAS", CYAN]])
+	var kind: String = "trail" if sub_tab["customize"] == "trails" else "aura"
+	side_body.add_child(_label(("Your running trail - it follows your feet on every map." if kind == "trail" else "An aura of particles that floats around your runner (see it in the lobby now).") + "   Click to buy / wear.", 16, TEXT_DIM, 0, font_reg))
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	side_body.add_child(grid)
+	for it in d["trails" if kind == "trail" else "auras"]:
+		var status: Control
+		if it["on"]:
+			status = _chip("WEARING", GREEN, 15)
+		elif it["owned"]:
+			status = _chip("OWNED", Color(0.8, 0.78, 0.95), 15)
+		else:
+			status = _chip("●  " + _fmt(it["price"]), GOLD if d["wallet"] >= it["price"] else Color(0.55, 0.5, 0.55), 15)
+		var a: Color = it["a"] if it["id"] != "none" else Color(0.4, 0.4, 0.45)
+		var bt := _swatch_button(it["name"], a, it["b"], status, it["on"])
+		var id: String = it["id"]
+		bt.pressed.connect(func(): cosmetic_pick.emit(kind, id))
+		grid.add_child(bt)
+
+
+func _fill_records(d: Dictionary) -> void:
+	side_title.text = "RECORDS"
+	_tabs("records", [["scores", "HIGH SCORES", GOLD], ["missions", "MISSIONS", GREEN], ["collection", "COLLECTION", Color(1.0, 0.6, 0.3)]])
+	match sub_tab["records"]:
+		"scores":
+			var sc: Array = d["scores"]
+			if sc.is_empty():
+				side_body.add_child(_label("No runs yet - go set a high score!", 20, TEXT_DIM, 0, font_reg))
+				return
+			var grid := GridContainer.new()
+			grid.columns = 6
+			grid.add_theme_constant_override("h_separation", 26)
+			grid.add_theme_constant_override("v_separation", 6)
+			side_body.add_child(grid)
+			for h in ["#", "SCORE", "DISTANCE", "RUNNER", "TRACK", "DATE"]:
+				grid.add_child(_label(h, 15, TEXT_DIM))
+			for i in sc.size():
+				var e: Dictionary = sc[i]
+				var col := GOLD if i == 0 else (Color(0.85, 0.88, 1.0) if i < 3 else Color.WHITE)
+				grid.add_child(_label("%d" % (i + 1), 22, col))
+				grid.add_child(_label(_fmt(int(e["score"])), 22, col))
+				grid.add_child(_label("%s m" % _fmt(int(e["dist"])), 18, CYAN, 0, font_reg))
+				grid.add_child(_label(String(e["runner"]), 18, Color.WHITE, 0, font_reg))
+				grid.add_child(_label(String(e["track"]), 16, TEXT_DIM, 0, font_reg))
+				grid.add_child(_label(String(e["date"]), 16, TEXT_DIM, 0, font_reg))
+		"missions":
+			side_body.add_child(_label("Complete missions for coins and fragments. A finished mission is replaced by a harder one.", 16, TEXT_DIM, 0, font_reg))
+			for m in d["missions"]:
+				var card := _card(GREEN, Color(0.09, 0.06, 0.17, 0.95))
+				side_body.add_child(card)
+				var v := VBoxContainer.new()
+				v.add_theme_constant_override("separation", 4)
+				card.add_child(v)
+				var hb := HBoxContainer.new()
+				v.add_child(hb)
+				var t := _label(String(m["text"]).to_upper(), 22, Color.WHITE)
+				t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				hb.add_child(t)
+				var rw := "●  %s" % _fmt(m["coins"]) + (("    ◆  %d" % m["frags"]) if int(m["frags"]) > 0 else "")
+				hb.add_child(_chip(rw, GOLD, 16))
+				var bar := Pips.new()
+				bar.progress = clampf(float(m["progress"]) / maxf(1.0, float(m["target"])), 0.0, 1.0)
+				bar.col = GREEN
+				bar.custom_minimum_size = Vector2(700, 12)
+				v.add_child(bar)
+				v.add_child(_label("%s / %s%s" % [_fmt(m["progress"]), _fmt(m["target"]), "   ·   in one run" if m["per_run"] else ""], 15, TEXT_DIM, 0, font_reg))
+			var stt: Dictionary = d.get("stats", {})
+			side_body.add_child(_label("LIFETIME  ·  %s runs  ·  %s m run  ·  ◆ %d fragments" % [_fmt(int(stt.get("runs", 0))), _fmt(int(stt.get("dist", 0))), d.get("fragments", 0)], 16, TEXT_DIM, 0, font_reg))
+		"collection":
+			var found := 0
+			for a in d["artifacts"]:
+				if a["found"]:
+					found += 1
+			side_body.add_child(_label("Rare artifacts hide on the track (and on the HIGH ROUTE).  %d / %d found." % [found, d["artifacts"].size()], 16, TEXT_DIM, 0, font_reg))
+			var grid2 := GridContainer.new()
+			grid2.columns = 3
+			grid2.add_theme_constant_override("h_separation", 10)
+			grid2.add_theme_constant_override("v_separation", 10)
+			side_body.add_child(grid2)
+			for a in d["artifacts"]:
+				var c: Color = a["color"] if a["found"] else Color(0.3, 0.28, 0.36)
+				var tile := _card(c, Color(0.09, 0.06, 0.17, 0.95))
+				tile.custom_minimum_size = Vector2(245, 70)
+				var hb2 := HBoxContainer.new()
+				hb2.add_theme_constant_override("separation", 10)
+				tile.add_child(hb2)
+				var gem := Gem.new()
+				gem.col = c
+				gem.custom_minimum_size = Vector2(34, 40)
+				hb2.add_child(gem)
+				hb2.add_child(_label(a["name"] if a["found"] else "? ? ?", 17, Color.WHITE if a["found"] else TEXT_DIM))
+				grid2.add_child(tile)
+
+
+func _toggle(text: String, key: String, on: bool, note := "", enabled := true) -> void:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 14)
+	side_body.add_child(hb)
+	var l := _label(text, 20, Color.WHITE if enabled else TEXT_DIM)
+	l.custom_minimum_size = Vector2(300, 0)
+	hb.add_child(l)
+	var b := _button("ON" if on else "OFF", GREEN if on else Color(0.55, 0.5, 0.65), 110, 42, 18)
+	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.disabled = not enabled
+	if on and enabled:
+		b.add_theme_stylebox_override("normal", _style(GREEN, Color.WHITE, 2, 12, false))
+		b.add_theme_color_override("font_color", INK)
+	b.pressed.connect(func(): setting_changed.emit(key, not on))
+	hb.add_child(b)
+	if note != "":
+		hb.add_child(_label(note, 15, TEXT_DIM, 0, font_reg))
+
+
+func _slider(text: String, key: String, v: float) -> void:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 14)
+	side_body.add_child(hb)
+	var l := _label(text, 20, Color.WHITE)
+	l.custom_minimum_size = Vector2(300, 0)
+	hb.add_child(l)
+	var sl := HSlider.new()
+	sl.min_value = 0.0
+	sl.max_value = 1.0
+	sl.step = 0.05
+	sl.value = v
+	sl.custom_minimum_size = Vector2(320, 36)
+	sl.focus_mode = Control.FOCUS_NONE
+	sl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var val := _label("%d%%" % int(v * 100), 18, CYAN)
+	sl.value_changed.connect(func(x):
+		val.text = "%d%%" % int(x * 100)
+		setting_changed.emit(key, x))
+	hb.add_child(sl)
+	hb.add_child(val)
+
+
+func _fill_settings(d: Dictionary) -> void:
+	side_title.text = "SETTINGS"
+	side_body.add_child(_label("AUDIO", 18, GOLD))
+	_slider("MUSIC VOLUME", "music", float(d["music"]))
+	_slider("SOUND EFFECTS", "sfx", float(d["sfx"]))
+	side_body.add_child(_label("GRAPHICS", 18, GOLD))
+	var qh := HBoxContainer.new()
+	qh.add_theme_constant_override("separation", 10)
+	side_body.add_child(qh)
+	var ql := _label("QUALITY", 20, Color.WHITE)
+	ql.custom_minimum_size = Vector2(300, 0)
+	qh.add_child(ql)
+	var qs := ["low", "medium", "high", "ultra"]
+	if d.get("mobile", false):
+		qs = ["mobile", "low", "medium", "high"]
+	for q in qs:
+		var on: bool = d["quality"] == q
+		var b := _button(q.to_upper(), CYAN if on else Color(0.5, 0.45, 0.7), 100, 42, 16)
+		b.alignment = HORIZONTAL_ALIGNMENT_CENTER
+		if on:
+			b.add_theme_stylebox_override("normal", _style(CYAN, Color.WHITE, 2, 12, false))
+			b.add_theme_color_override("font_color", INK)
+		b.pressed.connect(func(): setting_changed.emit("quality", q))
+		qh.add_child(b)
+	var fp: bool = d.get("forward_plus", true)
+	var mob: bool = d.get("mobile", false)
+	_toggle("AMBIENT OCCLUSION", "ao", bool(d["ao"]), "SSAO  ·  medium quality+" if fp else "not on this renderer", fp)
+	_toggle("GLOBAL ILLUMINATION", "gi", bool(d["gi"]), ("real-time SSIL  ·  high / ultra" if not mob else "off on mobile") if fp else "not on this renderer", fp and not mob)
+	var pl: int = d.get("perf_level", 0)
+	_toggle("AUTO PERFORMANCE", "auto_perf", bool(d["auto_perf"]), ("keeps 50+ fps" if pl == 0 else "reduced %d step(s) this session" % pl))
+	if pl > 0:
+		var rb := _button("RESTORE FULL QUALITY", CYAN, 260, 40, 15)
+		rb.alignment = HORIZONTAL_ALIGNMENT_CENTER
+		rb.pressed.connect(func(): setting_changed.emit("reset_perf", true))
+		side_body.add_child(rb)
+	_toggle("FPS COUNTER", "fps_counter", bool(d["fps_counter"]))
+	side_body.add_child(_label("GAMEPLAY", 18, GOLD))
+	_slider("CAMERA SHAKE", "shake", float(d["shake"]))
+	_toggle("TOUCH CONTROLS", "touch", bool(d["touch"]), "swipe + on-screen DASH / HOOK")
 
 
 func _num(v) -> String:
@@ -1191,7 +1513,24 @@ func show_over(d: Dictionary) -> void:
 	over_vals["SCORE"].text = _fmt(d["score"])
 	over_vals["DISTANCE"].text = "%s m" % _fmt(d["distance"])
 	over_vals["COINS"].text = "+%s" % _fmt(d["gold"])
-	over_vals["CLOSE CALLS"].text = "%d" % d["close"]
+	over_vals["STYLE PEAK"].text = "x%d" % d.get("style", 1)
+	over_vals["FRAGMENTS"].text = "+%d" % d.get("frags", 0)
+	over_vals["FRAGMENTS"].add_theme_color_override("font_color", PURPLE)
+	for c in over_extra.get_children():
+		c.queue_free()
+	var rank: int = d.get("rank", 0)
+	if rank > 0:
+		var rc := _chip("#%d  ON THE HIGH SCORE TABLE" % rank, GOLD if rank == 1 else CYAN, 18)
+		rc.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		over_extra.add_child(rc)
+	for m in d.get("missions", []):
+		var ml := _label("✓  MISSION:  " + String(m).to_upper(), 17, GREEN, 0, font_reg)
+		ml.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		over_extra.add_child(ml)
+	for a in d.get("artifacts", []):
+		var al := _label("★  ARTIFACT:  " + String(a), 17, Color(1.0, 0.7, 0.3), 0, font_reg)
+		al.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		over_extra.add_child(al)
 	over_vals["BEST"].text = _fmt(d["best"])
 	over_bank.text = "COINS BANKED  ·  WALLET  %s" % _fmt(d.get("wallet", 0))
 	over_badge.visible = d["new_best"]
@@ -1230,12 +1569,27 @@ func update_hud(d: Dictionary) -> void:
 	zone_bar.col_a = d["accent"]
 	zone_bar.col_b = Color.WHITE
 	zone_bar.queue_redraw()
-	var flow: float = d["flow"]
-	var tier: int = d["flow_tier"]
-	flow_bar.value = flow / 100.0
-	flow_bar.text = "FLOW  %d%%%s" % [int(flow), ("   ·   SCORE  +%d" % tier) if tier > 0 else ""]
-	flow_bar.glow = (0.5 + 0.5 * sin(_t * 8.0)) if tier >= 2 else 0.0
+	var st: int = d.get("style_tier", 0)
+	flow_bar.value = d.get("style_prog", 0.0)
+	var chain: String = d.get("style_chain", "")
+	flow_bar.text = "STYLE  x%d%s" % [d.get("style_mult", 1), ("   ·   " + chain) if chain != "" else ""]
+	flow_bar.col_a = STYLE_COLS[st]
+	flow_bar.col_b = STYLE_COLS[mini(st + 1, 4)]
+	flow_bar.glow = (0.5 + 0.5 * sin(_t * 8.0)) if st >= 3 else 0.0
 	flow_bar.queue_redraw()
+	var ev: String = d.get("event", "")
+	event_lbl.visible = ev != ""
+	if ev != "":
+		event_lbl.text = "⚠  %s   %ds" % [ev, ceili(d.get("event_t", 0.0))]
+		event_lbl.add_theme_color_override("font_color", d.get("event_col", Color.WHITE))
+		event_lbl.modulate.a = 0.75 + 0.25 * sin(_t * 6.0)
+	frag_lbl.text = "◆ %d" % d.get("frags", 0)
+	key_chip.visible = d.get("keys", 0) > 0
+	(key_chip.get_child(0) as Label).text = "KEY x%d" % d.get("keys", 0)
+	var rt: String = d.get("route", "")
+	route_chip.visible = rt != ""
+	if rt != "":
+		(route_chip.get_child(0) as Label).text = "HIGH ROUTE" if rt == "high" else "UNDERPASS"
 	var ab: Array = d["abilities"]
 	for i in slots.size():
 		var s: AbilitySlot = slots[i]
@@ -1346,8 +1700,23 @@ func zone_banner(title: String, sub: String) -> void:
 	tw.chain().tween_property(zone_box, "modulate:a", 0.0, 0.6)
 
 
+## Touch mode: the ability slots show the on-screen buttons / swipes.
+func set_touch_keys(on: bool) -> void:
+	var keys := ["BTN", "BTN", "SWIPE x2"] if on else ["Q", "E", "SPACE x2"]
+	for i in mini(slots.size(), 3):
+		slots[i].key = keys[i]
+		slots[i].queue_redraw()
+
+
+func show_fps(on: bool) -> void:
+	if fps_lbl:
+		fps_lbl.visible = on
+
+
 func _process(delta: float) -> void:
 	_t += delta
+	if fps_lbl and fps_lbl.visible:
+		fps_lbl.text = "%d FPS" % Engine.get_frames_per_second()
 	_flash = maxf(0.0, _flash - delta * 2.5)
 	post_mat.set_shader_parameter("flash", _flash)
 	post_mat.set_shader_parameter("flash_color", _flash_color)
