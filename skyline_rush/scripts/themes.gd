@@ -124,6 +124,8 @@ func build_tile(n: Node3D, t: int, idx: int) -> void:
 	for sd in [-1.0, 1.0]:
 		box(n, Vector3(0.35, 0.28, TILE), Vector3(sd * 4.37, 0.03, 0), curb)
 		box(n, Vector3(3.2, 0.26, TILE), Vector3(sd * 6.1, 0.0, 0), walk)
+	if t in [1, 2, 4, 6, 7]:
+		grass_verge(n, t)
 	if idx % 2 == 0:
 		var dm: Material = w.mat(s["dash"], s["dash"], s["dash_e"], 0.5)
 		box(n, Vector3(0.12, 0.03, 2.2), Vector3(-1.25, 0.015, 0), dm)
@@ -228,6 +230,7 @@ func overhead(z: float, t: int) -> float:
 		6: _torii(z, 1.0)
 		7: _bulb_string(z)
 		8: return _highway_over(z)
+		0: return sky_overhead(z)
 		_: return 40.0
 	match t:
 		1: return randf_range(9.0, 13.0)
@@ -317,12 +320,13 @@ func _lamp(p: Node3D, pos: Vector3, s: float, lamp_c: Color, pole_c: Color, lit 
 
 
 func _car_decor(p: Node3D, pos: Vector3) -> void:
-	var c: Color = pick([Color(1.0, 0.8, 0.3), Color(0.5, 0.7, 0.95), Color(0.95, 0.5, 0.5), Color(0.9, 0.9, 0.95)])
-	box(p, Vector3(1.7, 0.6, 3.8), pos + Vector3(0, 0.55, 0), M(c, Color.BLACK, 0, 0.3, 0.4, 0.3), true)
-	box(p, Vector3(1.5, 0.5, 2.0), pos + Vector3(0, 1.1, 0.2), M(Color(0.3, 0.4, 0.55), Color.BLACK, 0, 0.1, 0.6, 0.3))
-	for wx in [-0.8, 0.8]:
-		for wz in [-1.2, 1.2]:
-			cyl(p, 0.3, 0.25, pos + Vector3(wx, 0.3, wz), M(Color(0.1, 0.1, 0.12)), Vector3(0, 0, PI / 2))
+	# a parked car from the vehicle kit (random type + livery, no hazard rim)
+	var CM := preload("res://scripts/car_models.gd")
+	var types: Array = CM.types_of("car")
+	var type: String = types[randi() % types.size()]
+	var r: Array = w.car_instance(p, pos, type, CM.random_livery(type), false, randf_range(-0.2, 0.2))
+	if r[0] == null:
+		box(p, Vector3(1.7, 0.6, 3.8), pos + Vector3(0, 0.55, 0), M(Color(0.9, 0.9, 0.95)), true)
 
 
 # ---------------------------------------------------------------- 1 lantern festival
@@ -942,7 +946,9 @@ func _tree_for(t: int) -> String:
 ## Sidewalk props for the towns (x ~ 5 - 7.5): lamps, benches, bins, hydrants,
 ## planters, bus stops, vending machines... Returns spacing to the next one.
 func props(z: float, s: float, t: int) -> float:
-	if t == 0 or t == 5:
+	if t == 0:
+		return sky_side(z, s)
+	if t == 5:
 		return 40.0
 	if t == 2 and w.qpipe_near(z, s):
 		return 6.0
@@ -953,7 +959,13 @@ func props(z: float, s: float, t: int) -> float:
 		_highway_lamp(n, s)
 		return randf_range(16.0, 22.0)
 	var r2 := randf()
-	if r2 < 0.1:
+	if r2 < 0.06 and t in [3, 4, 7, 1]:
+		arcade_corner(n, s)
+		return randf_range(6.0, 9.0)
+	elif r2 < 0.14 and t in [1, 2, 4, 6, 7]:
+		topiary(n, Vector3(s * 0.6, 0, 0))
+		return randf_range(4.0, 7.0)
+	elif r2 < 0.2:
 		aframe_sign(n, s, night)
 		return randf_range(5.0, 8.0)
 	elif r2 < 0.17 and t != 6:
@@ -1544,9 +1556,16 @@ func facade_building(z: float, s: float, o: Dictionary) -> float:
 	# sign board with LED text
 	var words: Array = o.get("words", ["SHOP", "CAFE", "BAKERY", "BOOKS", "FLOWERS", "TOYS", "DELI", "MUSIC", "SHOES", "TEA"])
 	var sg_c: Color = pick(o.get("signs", [Color(0.95, 0.35, 0.4), Color(0.25, 0.7, 0.9), Color(1, 0.8, 0.3)]))
+	var shop_word: String = pick(words)
+	if randf() < 0.12:
+		shop_word = pick(["ARCADE", "GAMES"])
+		# arcade: cabinets glowing behind the shop window
+		for k in 3:
+			var az := su + (-sw * 0.3 + k * sw * 0.3) * 1.0
+			arcade_cabinet(n, fc + front * -1.4 + Vector3(0, 0, az), -s * PI * 0.5)
 	fbox(n, fc, front, su, 3.45, 0.12, sw * 0.8, 0.6, 0.16, M(Color(0.12, 0.1, 0.14)))
 	fbox(n, fc, front, su, 3.45, 0.15, sw * 0.8 + 0.1, 0.68, 0.1, G(sg_c, 1.6 if night else 0.8))
-	text(n, pick(words), fc + front * 0.25 + Vector3(0, 3.45, su), 0.012, Color(1, 1, 1), 2.2, Vector3(0, -s * PI * 0.5, 0))
+	text(n, shop_word, fc + front * 0.25 + Vector3(0, 3.45, su), 0.012, Color(1, 1, 1), 2.2, Vector3(0, -s * PI * 0.5, 0))
 	if o.get("lanterns", false):
 		for k in 2:
 			var lz := -wd * 0.25 + k * wd * 0.5
@@ -1581,6 +1600,12 @@ func facade_building(z: float, s: float, o: Dictionary) -> float:
 			var eu := -dp * 0.25 + k * dp * 0.5
 			var lit2 := night and randf() < 0.5
 			window(n, ec, endn, eu, y, 0.95, 1.35, trim, glass_lit if lit2 else glass_day, deco_base)
+	# ---- stairs and walkways
+	var stairs: String = o.get("stairs", "")
+	if stairs == "fire" or (stairs == "" and floors >= 3 and randf() < 0.35):
+		fire_escape(n, dp, wd, gh, fh, maxi(floors, 3))
+	elif stairs == "gallery" or (stairs == "" and floors >= 2 and randf() < 0.22):
+		gallery_walkway(n, s, dp, wd, gh, trim)
 	# drain pipe + wall lamp on the end wall
 	fbox(n, ec, endn, dp * 0.5 - 0.35, h * 0.5, 0.12, 0.12, h, 0.12, M(Color(0.45, 0.45, 0.5), Color.BLACK, 0, 0.4, 0.6))
 	if o.get("neon", false):
@@ -1917,9 +1942,10 @@ func far_extras(z: float, t: int) -> void:
 	var r := randf()
 	match t:
 		0:
-			if r < 0.3: hot_air_balloon(z, s)
-			elif r < 0.45: bird_flock(z, s)
-			elif r < 0.55: blimp(z, s, false)
+			if r < 0.25: hot_air_balloon(z, s)
+			elif r < 0.37: bird_flock(z, s)
+			elif r < 0.45: blimp(z, s, false)
+			elif r < 0.85: sky_setpiece(z)
 		1:
 			if r < 0.22: hot_air_balloon(z, s)
 			elif r < 0.4: billboard(z, s, false, true)
@@ -1954,3 +1980,255 @@ func far_extras(z: float, t: int) -> void:
 			if r < 0.3: billboard(z, s, false)
 			elif r < 0.48: wind_turbine(z, s)
 			elif r < 0.56: hot_air_balloon(z, s)
+
+
+# ============================================================ v9: stairs, walkways, arcade, greenery
+## Iron fire-escape zig-zag on the end wall you see while approaching.
+func fire_escape(n: Node3D, dp: float, wd: float, gh: float, fh: float, floors: int) -> void:
+	var iron := M(Color(0.18, 0.18, 0.22), Color.BLACK, 0, 0.5, 0.6)
+	var zf := wd * 0.5 + 0.65
+	var run := dp * 0.42
+	for f in range(1, floors):
+		var y := gh + (f - 1) * fh - 0.1
+		box(n, Vector3(dp * 0.7, 0.08, 1.2), Vector3(0, y, zf), iron)
+		box(n, Vector3(dp * 0.7, 0.05, 0.05), Vector3(0, y + 1.0, zf + 0.58), iron)
+		for k in 7:
+			box(n, Vector3(0.04, 1.0, 0.04), Vector3(-dp * 0.35 + k * dp * 0.7 / 6.0, y + 0.5, zf + 0.58), iron)
+		if f < floors - 1:
+			# stair flight up to the next landing, alternating direction
+			var dir := 1.0 if f % 2 == 0 else -1.0
+			var ang := atan2(fh, run)
+			var flight := box(n, Vector3(sqrt(run * run + fh * fh), 0.06, 0.7), Vector3(0, y + fh * 0.5, zf - 0.15), iron)
+			flight.rotation.z = dir * ang
+			for k in 8:
+				var t := (k + 0.5) / 8.0
+				box(n, Vector3(0.24, 0.04, 0.7), Vector3(dir * (-run * 0.5 + run * t), y + fh * t, zf - 0.15), iron)
+			var rail := box(n, Vector3(sqrt(run * run + fh * fh), 0.04, 0.04), Vector3(0, y + fh * 0.5 + 0.9, zf + 0.2), iron)
+			rail.rotation.z = dir * ang
+	# drop ladder to the street
+	for k in 6:
+		box(n, Vector3(0.5, 0.04, 0.04), Vector3(dp * 0.28, gh - 0.4 - k * 0.45, zf + 0.5), iron)
+	for sd in [-1.0, 1.0]:
+		box(n, Vector3(0.04, gh - 0.4, 0.04), Vector3(dp * 0.28 + sd * 0.25, (gh - 0.4) * 0.5, zf + 0.5), iron)
+
+
+## First-floor gallery walkway over the sidewalk + a stair down to the street.
+func gallery_walkway(n: Node3D, s: float, dp: float, wd: float, gh: float, trim: Material) -> void:
+	var fx := -s * (dp * 0.5 + 0.7)
+	var deck := M(Color(0.5, 0.36, 0.26), Color.BLACK, 0, 0.8)
+	var rail := M(Color(0.95, 0.95, 0.95), Color.BLACK, 0, 0.4, 0.3)
+	box(n, Vector3(1.4, 0.14, wd - 0.4), Vector3(fx, gh, 0), deck, true)
+	box(n, Vector3(0.06, 0.06, wd - 0.4), Vector3(fx - s * 0.68, gh + 1.0, 0), rail)
+	for k in int((wd - 0.4) / 0.45):
+		box(n, Vector3(0.04, 1.0, 0.04), Vector3(fx - s * 0.68, gh + 0.5, -wd * 0.5 + 0.4 + k * 0.45), rail)
+	for zz in [-wd * 0.5 + 0.4, wd * 0.5 - 0.4]:
+		box(n, Vector3(0.14, gh, 0.14), Vector3(fx - s * 0.6, gh * 0.5, zz), trim)
+	# stair flight along the facade, down to the street at the near end
+	var run := 3.4
+	var st := box(n, Vector3(0.9, 0.08, sqrt(run * run + gh * gh)), Vector3(fx + s * 0.1, gh * 0.5, wd * 0.5 + run * 0.5 - 0.2), deck)
+	st.rotation.x = atan2(gh, run)
+	for k in 10:
+		var t := (k + 0.5) / 10.0
+		box(n, Vector3(0.9, 0.05, 0.3), Vector3(fx + s * 0.1, gh * (1.0 - t), wd * 0.5 - 0.2 + run * t), deck)
+	var sr := box(n, Vector3(0.04, 0.04, sqrt(run * run + gh * gh)), Vector3(fx - s * 0.35, gh * 0.5 + 0.9, wd * 0.5 + run * 0.5 - 0.2), rail)
+	sr.rotation.x = atan2(gh, run)
+	for k in 3:
+		sph(n, 0.25, Vector3(fx, gh + 0.3, -wd * 0.3 + k * wd * 0.3), M(Color(0.3, 0.6, 0.32), Color.BLACK, 0, 0.9))
+
+
+## Arcade cabinet for the sidewalk (or inside an arcade shop).
+func arcade_cabinet(p: Node3D, pos: Vector3, facing: float) -> void:
+	var col: Color = pick([Color(0.9, 0.2, 0.3), Color(0.2, 0.4, 0.95), Color(0.1, 0.1, 0.12), Color(0.95, 0.75, 0.1), Color(0.6, 0.25, 0.85)])
+	var body := M(col, Color.BLACK, 0, 0.4, 0.3)
+	var n := Node3D.new()
+	n.position = pos
+	n.rotation.y = facing
+	p.add_child(n)
+	box(n, Vector3(0.75, 1.8, 0.75), Vector3(0, 0.9, 0), body, true)
+	var scr := box(n, Vector3(0.6, 0.5, 0.05), Vector3(0, 1.35, 0.33), G(pick([Color(0.3, 1.0, 0.8), Color(1.0, 0.4, 0.8), Color(0.4, 0.7, 1.0)]), 2.5, 0.6))
+	scr.rotation.x = -0.25
+	box(n, Vector3(0.7, 0.25, 0.1), Vector3(0, 1.85, 0.33), G(pick([Color(1.0, 0.85, 0.3), Color(1.0, 0.3, 0.4), Color(0.4, 1.0, 0.5)]), 3.0, 0.4))
+	box(n, Vector3(0.75, 0.08, 0.35), Vector3(0, 1.02, 0.5), M(col.darkened(0.3)))
+	cyl(n, 0.03, 0.15, Vector3(-0.15, 1.12, 0.5), M(Color(0.1, 0.1, 0.1)))
+	sph(n, 0.05, Vector3(-0.15, 1.2, 0.5), M(Color(1, 0.2, 0.2)))
+	for k in 3:
+		cyl(n, 0.04, 0.03, Vector3(0.05 + k * 0.1, 1.07, 0.5), G([Color(1, 0.3, 0.3), Color(0.3, 0.8, 1), Color(1, 0.9, 0.3)][k], 2.0))
+
+
+## Claw machine: glass box of plushies with the claw on top.
+func claw_machine(p: Node3D, pos: Vector3) -> void:
+	var frame := M(Color(1.0, 0.45, 0.7), Color.BLACK, 0, 0.35, 0.2)
+	box(p, Vector3(1.0, 0.9, 1.0), pos + Vector3(0, 0.45, 0), frame, true)
+	box(p, Vector3(0.95, 1.1, 0.95), pos + Vector3(0, 1.45, 0), w.mat(Color(0.7, 0.9, 1.0), Color(0.5, 0.8, 1.0), 0.25, 0.05, 0.3, 0.6))
+	box(p, Vector3(1.05, 0.3, 1.05), pos + Vector3(0, 2.15, 0), G(Color(1.0, 0.85, 0.3), 2.0, 0.5))
+	for k in 6:
+		var c: Color = pick([Color(1, 0.6, 0.7), Color(0.6, 0.85, 1), Color(1, 0.9, 0.5), Color(0.7, 1, 0.6)])
+		sph(p, 0.16, pos + Vector3(randf_range(-0.3, 0.3), 1.05, randf_range(-0.3, 0.3)), M(c, c, 0.1))
+	box(p, Vector3(0.04, 0.4, 0.04), pos + Vector3(0.15, 1.8, 0.1), M(Color(0.7, 0.7, 0.75), Color.BLACK, 0, 0.2, 0.9))
+	for sd in [-1.0, 1.0]:
+		box(p, Vector3(0.03, 0.18, 0.03), pos + Vector3(0.15 + sd * 0.07, 1.55, 0.1), M(Color(0.7, 0.7, 0.75), Color.BLACK, 0, 0.2, 0.9), false, Vector3(0, 0, sd * 0.4))
+
+
+## Sidewalk mini-arcade: two cabinets + a claw machine.
+func arcade_corner(n: Node3D, s: float) -> void:
+	arcade_cabinet(n, Vector3(s * 1.3, 0, -0.5), -s * PI * 0.5)
+	arcade_cabinet(n, Vector3(s * 1.3, 0, 0.35), -s * PI * 0.5)
+	claw_machine(n, Vector3(s * 1.4, 0, 1.5))
+
+
+## Topiary: shaped hedges in stone planters (ball, cone, spiral, cube, bunny).
+func topiary(p: Node3D, pos: Vector3) -> void:
+	var g := M(pick([Color(0.2, 0.5, 0.25), Color(0.25, 0.55, 0.22), Color(0.18, 0.45, 0.3)]), Color.BLACK, 0, 0.9)
+	box(p, Vector3(0.8, 0.5, 0.8), pos + Vector3(0, 0.25, 0), M(Color(0.85, 0.82, 0.76), Color.BLACK, 0, 0.8))
+	match randi() % 5:
+		0:
+			cyl(p, 0.06, 0.6, pos + Vector3(0, 0.8, 0), M(Color(0.4, 0.28, 0.18)))
+			sph(p, 0.45, pos + Vector3(0, 1.4, 0), g)
+		1:
+			cone(p, 0.42, 1.6, pos + Vector3(0, 1.3, 0), g)
+		2:
+			for k in 3:
+				sph(p, 0.4 - k * 0.1, pos + Vector3(0, 0.85 + k * 0.55, 0), g, 0.8)
+		3:
+			box(p, Vector3(0.7, 0.8, 0.7), pos + Vector3(0, 0.9, 0), g)
+		4:
+			sph(p, 0.35, pos + Vector3(0, 0.85, 0), g)
+			sph(p, 0.24, pos + Vector3(0, 1.3, 0.1), g)
+			for sd in [-1.0, 1.0]:
+				sph(p, 0.08, pos + Vector3(sd * 0.1, 1.62, 0.05), g, 2.6)
+
+
+## Grass verge along the kerb with a few tufts (drawn per road tile).
+func grass_verge(n: Node3D, t: int) -> void:
+	var gc: Color = {1: Color(0.42, 0.66, 0.32), 2: Color(0.45, 0.72, 0.35), 4: Color(0.36, 0.6, 0.35), 6: Color(0.48, 0.72, 0.36), 7: Color(0.5, 0.75, 0.4)}.get(t, Color(0.42, 0.66, 0.32))
+	var gm := M(gc, Color.BLACK, 0.0, 0.95)
+	var tuft := M(gc.darkened(0.15), Color.BLACK, 0.0, 0.95)
+	for sd in [-1.0, 1.0]:
+		box(n, Vector3(0.6, 0.04, TILE), Vector3(sd * 4.9, 0.15, 0), gm)
+		for k in 2:
+			var tz := randf_range(-1.8, 1.8)
+			var tx: float = sd * randf_range(4.7, 5.1)
+			for j in 3:
+				cone(n, 0.06, 0.35, Vector3(tx + (j - 1) * 0.07, 0.3, tz + randf_range(-0.05, 0.05)), tuft, Vector3(randf_range(-0.3, 0.3), 0, randf_range(-0.3, 0.3)))
+		if randf() < 0.25:
+			var fc: Color = pick([Color(1, 0.4, 0.6), Color(1, 0.9, 0.3), Color(0.8, 0.6, 1), Color(1, 1, 1)])
+			sph(n, 0.07, Vector3(sd * randf_range(4.7, 5.1), 0.25, randf_range(-1.8, 1.8)), M(fc, fc, 0.2))
+
+
+# ============================================================ v9: Sky Roads beautification
+## Overhead pieces for Sky Roads: neon ring gates, star arches, lantern pairs.
+func sky_overhead(z: float) -> float:
+	var n := node(Vector3(0, 0, z), 2.0)
+	var r := randf()
+	var cols := [Color(1.0, 0.4, 0.8), Color(0.35, 0.9, 1.0), Color(0.7, 0.5, 1.0), Color(1.0, 0.8, 0.35)]
+	if r < 0.4:
+		var c: Color = pick(cols)
+		w._torus(n, 6.4, 6.9, Vector3(0, 1.0, 0), G(c, 3.0, 1.0))
+		for k in 12:
+			var a := PI * k / 11.0
+			sph(n, 0.22, Vector3(cos(a) * 7.2, 1.0 + sin(a) * 7.2, 0), G(Color(1, 1, 1), 4.0, 1.0))
+	elif r < 0.7:
+		for k in 15:
+			var a := PI * k / 14.0
+			var c2: Color = cols[k % cols.size()]
+			sph(n, 0.32, Vector3(cos(a) * 6.5, 0.8 + sin(a) * 6.0, 0), G(c2, 3.5, 0.8))
+		for sd in [-1.0, 1.0]:
+			cyl(n, 0.2, 1.2, Vector3(sd * 6.5, 0.2, 0), M(Color(0.9, 0.85, 1.0)))
+	else:
+		for sd in [-1.0, 1.0]:
+			cyl(n, 0.1, 4.5, Vector3(sd * 4.6, 2.25, 0), M(Color(0.85, 0.8, 0.95), Color.BLACK, 0, 0.3, 0.6))
+			var c3: Color = pick(cols)
+			sph(n, 0.45, Vector3(sd * 4.6, 4.8, 0), G(c3, 3.0, 1.0), 1.3)
+			cyl(n, 0.3, 0.1, Vector3(sd * 4.6, 5.45, 0), M(Color(0.95, 0.85, 0.5)))
+	return randf_range(28.0, 42.0)
+
+
+## Floating mini-islands beside the Sky Road with a lamp, a bench, flowers.
+func sky_side(z: float, s: float) -> float:
+	var n := node(Vector3(s * randf_range(7.0, 10.0), randf_range(-1.2, 0.8), z), 3.0)
+	var rock := M(Color(0.55, 0.42, 0.62), Color.BLACK, 0, 0.9)
+	var grass := M(Color(0.55, 0.9, 0.7), Color.BLACK, 0, 0.9)
+	var r := randf_range(1.6, 2.4)
+	cyl(n, r, 0.4, Vector3(0, -0.2, 0), grass)
+	cone(n, r * 0.95, r * 1.6, Vector3(0, -0.4 - r * 0.8, 0), rock, Vector3(PI, 0, 0))
+	match randi() % 4:
+		0:
+			street_lamp(n, Vector3(0, 0, 0), s, Color(1.0, 0.85, 1.0), Color(0.85, 0.8, 0.95), true)
+			bench(n, Vector3(s * 0.7, 0, 0.6), s)
+		1:
+			gtree(n, Vector3.ZERO, pick(["sakura", "gold", "oak"]), randf_range(2.8, 4.0))
+			for k in 6:
+				var fc: Color = pick([Color(1, 0.5, 0.8), Color(1, 0.9, 0.4), Color(0.7, 0.6, 1)])
+				sph(n, 0.1, Vector3(randf_range(-r * 0.7, r * 0.7), 0.1, randf_range(-r * 0.7, r * 0.7)), M(fc, fc, 0.2))
+		2:
+			topiary(n, Vector3.ZERO)
+			topiary(n, Vector3(s * 0.9, 0, 0.9))
+		3:
+			# little glowing crystal cluster
+			for k in 4:
+				var gc: Color = pick([Color(0.5, 0.9, 1.0), Color(1.0, 0.5, 0.9), Color(0.7, 0.6, 1.0)])
+				var cr := cone(n, 0.25, randf_range(0.8, 1.6), Vector3(randf_range(-0.6, 0.6), 0.5, randf_range(-0.6, 0.6)), G(gc, 2.0, 0.6))
+				cr.rotation = Vector3(randf_range(-0.3, 0.3), 0, randf_range(-0.3, 0.3))
+	w.bobbers.append([n, n.position.y, 0.25, 0.6, randf() * TAU])
+	return randf_range(9.0, 16.0)
+
+
+## Big Sky Roads set pieces (floating village, rainbow, crystal spires, sky whale, waterfall garden).
+func sky_setpiece(z: float) -> void:
+	var s := -1.0 if randf() < 0.5 else 1.0
+	match randi() % 5:
+		0:
+			var n := node(Vector3(s * randf_range(22.0, 40.0), randf_range(-6.0, 4.0), z), 12.0)
+			cyl(n, 7.0, 1.0, Vector3(0, 0, 0), M(Color(0.55, 0.88, 0.62)))
+			cone(n, 6.8, 9.0, Vector3(0, -5.0, 0), M(Color(0.5, 0.38, 0.58)), Vector3(PI, 0, 0))
+			for k in 4:
+				var hx := randf_range(-4.0, 4.0)
+				var hz := randf_range(-4.0, 4.0)
+				var wc: Color = pick([Color(1, 0.9, 0.85), Color(0.85, 0.9, 1), Color(1, 0.85, 0.95)])
+				box(n, Vector3(2.0, 1.8, 2.0), Vector3(hx, 1.4, hz), M(wc))
+				cone(n, 1.6, 1.3, Vector3(hx, 2.9, hz), M(pick([Color(0.9, 0.35, 0.45), Color(0.35, 0.5, 0.9), Color(0.55, 0.35, 0.8)])))
+				box(n, Vector3(0.5, 0.5, 0.05), Vector3(hx, 1.5, hz + 1.02), G(Color(1.0, 0.85, 0.5), 1.5))
+			gtree(n, Vector3(-4.5, 0.5, 3.5), "sakura", 4.0)
+			w._beam(n, Vector3(5.0, -30.0, 0), 1.0, 30.5, Color(0.6, 0.85, 1.0), 0.45)
+			w.bobbers.append([n, n.position.y, 0.6, 0.3, randf() * TAU])
+		1:
+			# rainbow arch over the whole road
+			var n2 := node(Vector3(0, -8.0, z), 30.0)
+			var rb := [Color(1, 0.3, 0.3), Color(1, 0.6, 0.2), Color(1, 0.9, 0.3), Color(0.4, 0.9, 0.4), Color(0.3, 0.6, 1), Color(0.6, 0.4, 1)]
+			for k in rb.size():
+				w._torus(n2, 28.0 - k * 0.9, 28.8 - k * 0.9, Vector3.ZERO, G(rb[k], 1.2, 0.2))
+		2:
+			var n3 := node(Vector3(s * randf_range(18.0, 34.0), -12.0, z), 8.0)
+			for k in 7:
+				var gc: Color = pick([Color(0.5, 0.9, 1.0), Color(1.0, 0.5, 0.9), Color(0.7, 0.6, 1.0)])
+				var cr := cone(n3, randf_range(0.8, 1.6), randf_range(8.0, 18.0), Vector3(randf_range(-4, 4), 5.0, randf_range(-4, 4)), G(gc, 1.5, 0.5))
+				cr.rotation = Vector3(randf_range(-0.25, 0.25), 0, randf_range(-0.25, 0.25))
+		3:
+			# sky whale gliding past
+			var n4 := node(Vector3(s * randf_range(30.0, 55.0), randf_range(14.0, 26.0), z), 14.0)
+			var skin := M(Color(0.45, 0.55, 0.95), Color(0.3, 0.4, 0.9), 0.15, 0.6)
+			var belly := M(Color(0.92, 0.92, 1.0))
+			var b := sph(n4, 4.0, Vector3.ZERO, skin)
+			b.scale = Vector3(4.0, 3.2, 9.0)
+			var bl := sph(n4, 3.6, Vector3(0, -0.9, 0.5), belly)
+			bl.scale = Vector3(3.2, 2.2, 7.5)
+			var tail := box(n4, Vector3(6.0, 0.4, 2.2), Vector3(0, 0.8, -10.5), skin)
+			tail.rotation.x = 0.2
+			for sd in [-1.0, 1.0]:
+				var fin := box(n4, Vector3(4.0, 0.3, 1.6), Vector3(sd * 4.5, -1.2, 2.0), skin)
+				fin.rotation = Vector3(0, sd * 0.4, sd * -0.4)
+				sph(n4, 0.35, Vector3(sd * 3.3, 0.6, 6.5), M(Color(0.05, 0.05, 0.1)))
+			for k in 3:
+				sph(n4, 0.4 + k * 0.1, Vector3(0, 3.5 + k * 0.9, 4.0), G(Color(0.8, 0.95, 1.0), 1.5, 0.5))
+			n4.rotation.y = randf_range(-0.4, 0.4)
+			w.bobbers.append([n4, n4.position.y, 1.5, 0.25, randf() * TAU])
+		4:
+			# floating garden with a waterfall
+			var n5 := node(Vector3(s * randf_range(20.0, 32.0), randf_range(2.0, 8.0), z), 8.0)
+			cyl(n5, 4.5, 0.8, Vector3.ZERO, M(Color(0.55, 0.9, 0.6)))
+			cone(n5, 4.3, 7.0, Vector3(0, -3.9, 0), M(Color(0.5, 0.4, 0.6)), Vector3(PI, 0, 0))
+			cyl(n5, 1.6, 0.1, Vector3(-s * 1.2, 0.45, 0), w.mat(Color(0.4, 0.7, 1.0), Color(0.4, 0.7, 1.0), 0.6, 0.05, 0.3))
+			w._beam(n5, Vector3(-s * 4.3, -22.0, 0), 0.9, 22.0, Color(0.55, 0.85, 1.0), 0.6)
+			for k in 5:
+				gtree(n5, Vector3(randf_range(-3, 3), 0.4, randf_range(-3, 3)), pick(["sakura", "gold", "oak", "birch"]), randf_range(2.5, 4.0))
+			w.bobbers.append([n5, n5.position.y, 0.5, 0.35, randf() * TAU])

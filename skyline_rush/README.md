@@ -24,6 +24,20 @@ Open Godot 4.3 or newer → Import → choose `project.godot` → press F5.
     - flower beds
   - It stays light on performance: each prop is merged into one mesh, moving parts spin or bob as a single node, and they spawn sparsely in the far layer.
 
+- **Vehicle kit (`models/cars_src.glb`):** 7 vehicles: sedan, taxi, hatchback, minibus, coach and 2 delivery trucks.
+  - Each part is recognised and painted: glossy car paint, dark glass, tyres with chrome hubs, lit headlights and tail lights, and number plates.
+  - Every vehicle is merged into **one mesh** on the curved-road shader (one draw call, and it bends with the road).
+  - Liveries: 12 paint colours, two-tone, taxi (with roof sign), police (with light bar), and delivery trucks with a brand colour and 3D logo.
+  - The model cars are the traffic obstacles and the parked cars. Coaches and trucks join the buses: roof coins, and you can climb their backs.
+- **Stairs and walkways:** iron **fire escapes** zig-zag up building end walls, and some shops have a first-floor **gallery walkway** over the sidewalk with a stair down to the street.
+- **Arcade:** sidewalk mini-arcades (2 cabinets + a claw machine) and **ARCADE / GAMES** shops with cabinets glowing behind the window.
+- **Greenery:** grass verges with tufts and flowers along the kerbs, plus **topiary** hedges (balls, cones, spirals, cubes, bunnies) in planters.
+- **Sky Roads (map 1)** got a lot more:
+  - floating mini-islands beside the road (lamps, benches, trees, flowers, topiary, crystals)
+  - neon ring gates, star arches and lantern pairs over the road
+  - a floating village with a waterfall, rainbow arches, crystal spires, a **sky whale**, floating gardens
+  - a ringed **planet** in the sky, drifting light motes, balloons, birds and blimps
+
 ### Gameplay
 - **Stepped speed:** the run warms up to cruising speed in about 20 s. From then on the speed stays **constant for 45 s**, rises a little (+2.5 m/s, eased in over a few seconds, with a SPEED UP! cue) and holds again, until top speed after about 7 minutes.
 - **STYLE / momentum multiplier:**

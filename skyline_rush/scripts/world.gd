@@ -9,6 +9,7 @@ const BEAM_SHADER := preload("res://shaders/beam.gdshader")
 const WORLD_VC := preload("res://shaders/world_vc.gdshader")
 const BATCH_KEYS := ["box", "sphere", "cyl", "pipe", "cone"]
 const ThemesScript := preload("res://scripts/themes.gd")
+const CarModels := preload("res://scripts/car_models.gd")
 const WEAK := ["jump", "crate", "drone", "pop_spikes", "drop"]
 const SOLID := ["car", "speaker", "crate", "platform", "rail", "pop_wall", "drop", "bus"]
 
@@ -625,8 +626,41 @@ func _spawn_laser(lane: int, z: float) -> void:
 	_danger_line(n, 0.2)
 
 
+## A vehicle from cars_src.glb (one merged, vertex-coloured mesh) under parent.
+## Returns [MeshInstance3D, AABB] (null if the model is missing).
+func car_instance(parent: Node3D, pos: Vector3, type: String, livery: String, hazard: bool, yaw := 0.0, brand_col := Color(0.9, 0.2, 0.2)) -> Array:
+	var r: Array = CarModels.mesh(type, livery, hazard, brand_col)
+	if r[0] == null:
+		return [null, AABB()]
+	if vc_mat == null:
+		vc_mat = ShaderMaterial.new()
+		vc_mat.shader = WORLD_VC
+	var mi := MeshInstance3D.new()
+	mi.mesh = r[0]
+	mi.material_override = vc_mat
+	mi.position = pos
+	mi.rotation.y = yaw
+	mi.extra_cull_margin = 60.0
+	parent.add_child(mi)
+	return [mi, r[1]]
+
+
 func _spawn_car(lane: int, z: float) -> void:
-	# traffic -> dodge, or jump onto its roof
+	# traffic -> dodge, or jump onto its roof (textured model cars, random liveries)
+	var types := CarModels.types_of("car")
+	var type: String = types[randi() % types.size()]
+	var n := _obj("car", lane, z, 2.6)
+	var r := car_instance(n, Vector3.ZERO, type, CarModels.random_livery(type), true)
+	if r[0] != null:
+		var bb: AABB = r[1]
+		n.set_meta("box", AABB(Vector3(bb.position.x + 0.05, 0.0, bb.position.z), Vector3(bb.size.x - 0.1, bb.size.y, bb.size.z)))
+		_danger_line(n, bb.end.z)
+		return
+	n.queue_free()
+	_spawn_car_prim(lane, z)
+
+
+func _spawn_car_prim(lane: int, z: float) -> void:
 	var n := _obj("car", lane, z, 2.3)
 	n.set_meta("box", AABB(Vector3(-0.9, 0.0, -2.1), Vector3(1.8, 1.55, 4.2)))
 	var cols := [Color(0.9, 0.12, 0.15), Color(0.1, 0.35, 0.95), Color(0.98, 0.7, 0.05), Color(0.1, 0.1, 0.12), Color(0.95, 0.95, 0.97), Color(0.1, 0.65, 0.4)]
@@ -667,6 +701,8 @@ func _spawn_car(lane: int, z: float) -> void:
 ## City bus (like the trains in modern runners): parked, or oncoming
 ## (meta "move"). A parked bus in the safe lane gets a ramp to run up onto it.
 func _spawn_bus(lane: int, z: float, moving: bool, ramp: bool) -> void:
+	if not ramp and randf() < 0.55 and _spawn_big_vehicle(lane, z, moving):
+		return
 	var n := _obj("bus", lane, z - 5.5, 6.0)
 	n.set_meta("box", AABB(Vector3(-1.15, 0.0, -5.5), Vector3(2.3, 3.1, 11.0)))
 	n.set_meta("move", randf_range(7.0, 10.0) if moving else 0.0)
@@ -2035,3 +2071,32 @@ func blocker_wall(lane: int, z: float) -> Node3D:
 	batching = was
 	flush_batches()
 	return objects.get_child(objects.get_child_count() - 1)
+
+
+## Coach / delivery truck / minibus from the vehicle kit (behaves like a bus).
+func _spawn_big_vehicle(lane: int, z: float, moving: bool) -> bool:
+	var type: String = ["coach", "coach", "truck", "truck2", "minibus"][randi() % 5]
+	var brand: Array = themes.BRANDS[randi() % themes.BRANDS.size()]
+	var livery := CarModels.random_livery(type)
+	var probe: Array = CarModels.mesh(type, livery, true, brand[2])
+	if probe[0] == null:
+		return false
+	var bb: AABB = probe[1]
+	var half := bb.size.z * 0.5
+	var n := _obj("bus", lane, z - half, half + 0.5)
+	n.set_meta("move", randf_range(7.0, 10.0) if moving else 0.0)
+	car_instance(n, Vector3.ZERO, type, livery, true, 0.0, brand[2])
+	n.set_meta("box", AABB(Vector3(bb.position.x + 0.05, 0.0, bb.position.z), Vector3(bb.size.x - 0.1, bb.size.y, bb.size.z)))
+	if type.begins_with("truck"):
+		# brand logo on both sides of the cargo box
+		for sd in [-1.0, 1.0]:
+			var lg := Node3D.new()
+			lg.position = Vector3(sd * (bb.size.x * 0.5 + 0.03), bb.size.y * 0.58, bb.position.z + bb.size.z * 0.38)
+			lg.rotation.y = sd * PI * 0.5
+			n.add_child(lg)
+			themes.logo(lg, brand[1], Vector3.ZERO, 1.3, brand[3], Color(1, 1, 1), 0.5)
+	if not moving:
+		for k in 4:
+			_coin(0, n.position.z + half - 1.5 - k * 1.8, bb.size.y + 0.6).position.x = n.position.x
+	_danger_line(n, bb.end.z)
+	return true

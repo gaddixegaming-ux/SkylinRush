@@ -59,7 +59,7 @@ const VEH_SPEED := {"skate": 1.1, "hover": 1.18, "moto": 1.28}
 
 const ZONES := [
 	{"name": "SKY ROADS", "top": Color(0.42, 0.52, 0.98), "hor": Color(1.0, 0.74, 0.92), "fog": Color(0.98, 0.8, 0.96),
-		"sun": Color(1.0, 0.92, 0.95), "sun_e": 1.2, "amb": 1.0, "stars": 0.0, "ground": Color(0.6, 0.4, 0.8), "fog_d": 0.011, "plight": 0.0, "fx": "none", "wet": false},
+		"sun": Color(1.0, 0.92, 0.95), "sun_e": 1.2, "amb": 1.0, "stars": 0.0, "ground": Color(0.6, 0.4, 0.8), "fog_d": 0.011, "plight": 0.0, "fx": "motes", "wet": false},
 	{"name": "LANTERN FESTIVAL", "top": Color(0.3, 0.62, 1.0), "hor": Color(0.86, 0.93, 1.0), "fog": Color(0.86, 0.9, 1.0),
 		"sun": Color(1.0, 0.95, 0.85), "sun_e": 1.35, "amb": 1.1, "stars": 0.0, "ground": Color(0.8, 0.75, 0.7), "fog_d": 0.009, "plight": 0.0, "fx": "confetti", "wet": false},
 	{"name": "SKATE PARK", "top": Color(0.15, 0.55, 1.0), "hor": Color(0.72, 0.9, 1.0), "fog": Color(0.8, 0.91, 1.0),
@@ -94,6 +94,7 @@ var env: Environment
 var sky_mat: ProceduralSkyMaterial
 var sun: DirectionalLight3D
 var stars_mat: StandardMaterial3D
+var planet: Node3D
 
 var speed := START_SPEED
 var speed_target := CRUISE_SPEED
@@ -377,6 +378,46 @@ func _build_env() -> void:
 	fill.sky_mode = DirectionalLight3D.SKY_MODE_LIGHT_ONLY
 	add_child(fill)
 
+	# Sky Roads: a giant ringed planet in the sky (fixed, like the stars)
+	planet = Node3D.new()
+	planet.position = Vector3(-230.0, 170.0, -430.0)
+	add_child(planet)
+	var pmesh := SphereMesh.new()
+	pmesh.radius = 55.0
+	pmesh.height = 110.0
+	var pmi := MeshInstance3D.new()
+	pmi.mesh = pmesh
+	var pm := StandardMaterial3D.new()
+	pm.albedo_color = Color(0.85, 0.5, 0.8)
+	pm.emission_enabled = true
+	pm.emission = Color(0.75, 0.4, 0.8)
+	pm.emission_energy_multiplier = 0.12
+	pm.disable_fog = true
+	pm.rim_enabled = true
+	pmi.material_override = pm
+	pmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	planet.add_child(pmi)
+	var ring := MeshInstance3D.new()
+	var tm := TorusMesh.new()
+	tm.inner_radius = 72.0
+	tm.outer_radius = 100.0
+	tm.rings = 64
+	ring.mesh = tm
+	var rm := StandardMaterial3D.new()
+	rm.albedo_color = Color(0.75, 0.85, 1.0, 0.55)
+	rm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	rm.emission_enabled = true
+	rm.emission = Color(0.6, 0.75, 1.0)
+	rm.emission_energy_multiplier = 0.4
+	rm.disable_fog = true
+	rm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ring.material_override = rm
+	ring.scale = Vector3(1, 0.04, 1)
+	ring.rotation = Vector3(0.35, 0, 0.3)
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	planet.add_child(ring)
+	planet.visible = false
+
 	# star field for the night zones
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
@@ -583,6 +624,21 @@ func _set_weather(kind: String, wet: bool) -> void:
 				grad.add_point(0.33, Color(0.4, 0.8, 1.0))
 				grad.add_point(0.66, Color(1.0, 0.85, 0.3))
 				grad.set_color(grad.get_point_count() - 1, Color(0.6, 1.0, 0.6))
+		"motes":
+			# Sky Roads: slow pastel light motes drifting past
+			bm.size = Vector3(0.09, 0.09, 0.09)
+			weather.amount = 60 if is_mobile else 110
+			weather.lifetime = 4.0
+			weather.position = Vector3(0, 3.0, -16.0)
+			weather.emission_box_extents = Vector3(18, 6, 14)
+			weather.direction = Vector3(0, 0.3, 1.0)
+			weather.initial_velocity_min = 2.0
+			weather.initial_velocity_max = 5.0
+			weather.gravity = Vector3(0, 0.25, 0)
+			weather_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			grad.set_color(0, Color(2.0, 1.2, 1.8, 0.0))
+			grad.add_point(0.3, Color(1.6, 1.6, 2.2, 0.9))
+			grad.set_color(grad.get_point_count() - 1, Color(2.0, 1.9, 1.2, 0.0))
 		"sparks":
 			bm.size = Vector3(0.07, 0.07, 0.07)
 			weather.amount = 90
@@ -1357,7 +1413,7 @@ func _move_buses(delta: float) -> void:
 	for b in objs:
 		if b.get_meta("kind") != "bus" or float(b.get_meta("move", 0.0)) <= 0.0 or b.position.z < -140.0:
 			continue
-		var front: float = b.position.z + 5.5
+		var front: float = b.position.z + (b.get_meta("box") as AABB).end.z
 		for o in objs:
 			if o != b and absf(o.position.x - b.position.x) < 1.0 and o.position.z > front - 1.0 and o.position.z < front + 8.0 \
 					and o.get_meta("kind") in ["car", "speaker", "crate", "bus", "jump", "slide", "pop_wall", "pop_spikes", "drop", "rail"]:
@@ -2138,6 +2194,8 @@ var _was_dark := 0.0
 
 
 func _update_zone(delta: float) -> void:
+	if planet:
+		planet.visible = zone_idx == 0 and state != State.MENU
 	if events and (events.dark > 0.0 or _was_dark > 0.0) and zone_t >= 1.0:
 		_apply_zone(zone_cur)
 	_was_dark = events.dark if events else 0.0

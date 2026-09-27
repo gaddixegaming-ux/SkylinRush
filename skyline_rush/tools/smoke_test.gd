@@ -287,13 +287,17 @@ func _test_bus() -> void:
 			if not did and case == "ramp_side" and rmp != null and rmp.position.z + 3.0 > 3.0:
 				did = true
 				main._on_dir(1)
-			if not did and case == "jump_back" and bus != null and bus.position.z + 5.5 > -main.speed * 0.42:
+			if not did and case == "jump_back" and bus != null and bus.position.z + (bus.get_meta("box") as AABB).end.z > -main.speed * 0.42:
 				did = true
 				main.player.press_jump()
 			maxy = maxf(maxy, main.player.position.y)
 			await process_frame
 			el += minf(main.get_process_delta_time(), 0.05)
-		print("bus %-10s alive=%s  max_y=%.2f" % [case, main.state == main.State.PLAYING, maxy])
+		var kinds := []
+		for c in w.objects.get_children():
+			if c.has_meta("test") and c.get_meta("kind") == "bus":
+				kinds.append("%.1fm" % (c.get_meta("box") as AABB).size.y)
+		print("bus %-10s alive=%s  max_y=%.2f  roof=%s" % [case, main.state == main.State.PLAYING, maxy, kinds])
 	main.grace = 9999.0
 
 
